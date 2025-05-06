@@ -64,8 +64,8 @@ def format_conversation(conversation: List[Dict]) -> str:
             formatted += f"Candidate: {turn['answer']}\n"
     return formatted
 
-async def get_next_question(questions: List[Dict], is_base_question: bool = False, topic: str = None) -> str:
-    """Generate next question based on conversation history and topic"""
+async def get_next_question(questions: List[Dict], is_base_question: bool = False) -> str:
+    """Generate next question based on conversation history"""
     try:
         logger.info("Generating next question...")
         
@@ -84,18 +84,28 @@ async def get_next_question(questions: List[Dict], is_base_question: bool = Fals
                     })
         
         if is_base_question:
-            # For the first follow-up, use a natural interview question
-            return "Can you walk me through your thought process on how you would approach this problem?"
+            messages = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": "The candidate has been presented with a technical question about K-Means clustering. Ask them about their approach to solving it.\n"
+                                          "The question should:\n"
+                                          "1. Be specific to K-Means clustering and the elbow method\n"
+                                          "2. Ask about their understanding of the algorithm\n"
+                                          "3. Focus on their implementation approach\n"
+                                          "4. Be clear and concise\n\n"
+                                          "Next question:"}
+            ]
         else:
-            # For subsequent follow-ups, use the conversation history
+            # Get the original question to maintain context
+            original_question = questions[0]["question"] if questions else ""
             messages = [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 *conversation,
-                {"role": "user", "content": "Based on the candidate's response, ask a follow-up question that:\n"
-                                          "1. Probes deeper into their understanding\n"
-                                          "2. Asks about specific aspects of their solution\n"
-                                          "3. Tests their technical knowledge\n"
-                                          "4. Is relevant to their previous answer\n\n"
+                {"role": "user", "content": f"Based on the candidate's response about K-Means clustering, ask a follow-up question that:\n"
+                                          "1. Stays focused on K-Means clustering and the elbow method\n"
+                                          "2. Probes deeper into their implementation approach\n"
+                                          "3. Asks about specific aspects of the algorithm\n"
+                                          "4. Tests their understanding of clustering concepts\n\n"
+                                          "Original question: {original_question}\n\n"
                                           "Next question:"}
             ]
         
@@ -114,51 +124,34 @@ async def get_next_question(questions: List[Dict], is_base_question: bool = Fals
         logger.error(f"Error generating next question: {str(e)}", exc_info=True)
         raise
 
-async def get_clarification(main_question: str, clarification_request: str) -> str:
-    try:
-        messages = [
-            {"role": "system", "content": "You are a technical interviewer helping a candidate understand the question better. Provide clear, concise clarifications without giving away the solution."},
-            {"role": "user", "content": f"Main question: {main_question}\n\nCandidate's clarification request: {clarification_request}\n\nPlease provide a helpful clarification:"}
-        ]
-        response = await client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=messages,
-            temperature=0.7,
-            max_tokens=150
-        )
-        clarification_resp = response.choices[0].message.content.strip()
-        return clarification_resp
-    except Exception as e:
-        raise Exception(f"Error generating clarification: {str(e)}")
-
 async def get_feedback(conversation: List[Dict], user_name: str):
     try:
         logger.info(f"Generating feedback for user: {user_name}")
         
-        system_message = """You are a senior technical interviewer providing structured feedback.
-        Your feedback should be balanced, constructive, and help the candidate improve.
+        system_message = """You are a senior data science interviewer providing structured feedback.
+        Your feedback should be organized into the following categories:
+        1. Summary: A brief overview of the interview performance
+        2. Positive Points: Specific strengths demonstrated during the interview
+        3. Points to Address: Areas that need immediate attention
+        4. Areas for Improvement: Long-term development suggestions
         
-        Guidelines for feedback:
-        1. Be specific and provide examples from the interview
-        2. Include both strengths and areas for improvement
-        3. Focus on technical skills, problem-solving, and communication
-        4. Provide actionable suggestions for improvement
-        5. Be honest but professional in your assessment
+        Focus on:
+        - Problem-solving approach
+        - Technical understanding
+        - Communication skills
+        - Implementation details
+        - Technical decision-making
         
-        Format your response as a JSON object with these exact keys:
-        {
-            "summary": "Brief overview of the interview performance",
-            "positive_points": ["List of specific strengths demonstrated"],
-            "points_to_address": ["List of immediate concerns that need attention"],
-            "areas_for_improvement": ["List of long-term development areas"]
-        }"""
+        Provide specific examples from the interview for each category."""
 
         prompt = """Based on the interview conversation, provide structured feedback for {user_name}.
-        Make sure to:
-        1. Identify at least 2-3 areas for improvement
-        2. Point out specific technical gaps or misunderstandings
-        3. Suggest ways to improve their approach
-        4. Be constructive but honest in your assessment
+        Format your response as a JSON object with these exact keys:
+        {{
+            "summary": "Brief overview of the interview performance",
+            "positive_points": ["List of specific strengths demonstrated"],
+            "points_to_address": ["List of immediate concerns"],
+            "areas_for_improvement": ["List of long-term development areas"]
+        }}
 
         Interview conversation:
         {conversation}
@@ -217,32 +210,3 @@ async def get_feedback(conversation: List[Dict], user_name: str):
             status_code=500,
             detail=f"Error generating feedback: {str(e)}. Please try again."
         )
-
-async def check_answer_quality(questions: List[Dict], topic: str) -> str:
-    try:
-        # Format the answers for the LLM
-        answers_text = "\n".join([
-            f"Q{i+1}: {q['question']}\nA{i+1}: {q['answer']}" for i, q in enumerate(questions)
-        ])
-        prompt = (
-            f"You are an expert technical interviewer. Review the following answers to {topic} interview questions. "
-            "If the answers are mostly relevant, thoughtful, and show understanding, respond with 'good'. "
-            "If the answers are mostly gibberish, irrelevant, or show no understanding, respond with 'bad'.\n"
-            f"Answers:\n{answers_text}\n\nRespond with only 'good' or 'bad'."
-        )
-        messages = [
-            {"role": "system", "content": "You are a strict technical interviewer."},
-            {"role": "user", "content": prompt}
-        ]
-        response = await client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=messages,
-            temperature=0.0,
-            max_tokens=10
-        )
-        result = response.choices[0].message.content.strip().lower()
-        if "good" in result:
-            return "good"
-        return "bad"
-    except Exception as e:
-        raise Exception(f"Error checking answer quality: {str(e)}")
