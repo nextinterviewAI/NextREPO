@@ -1,0 +1,44 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: Mock Interview API using FastAPI and Lambda
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: python3.9
+    Environment:
+      Variables:
+        MONGODB_URI: !Sub '{{resolve:secretsmanager:${AWS::StackName}/mongodb:SecretString:uri}}'
+        OPENAI_API_KEY: !Sub '{{resolve:secretsmanager:${AWS::StackName}/openai:SecretString:key}}'
+
+Resources:
+  InterviewAPI:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: deployment_package/lambda_function.zip
+      Handler: lambda_handler.handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+
+  InterviewAPILogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${InterviewAPI}'
+      RetentionInDays: 30
+
+Outputs:
+  InterviewAPI:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/'
+  InterviewAPIFunction:
+    Description: Interview API Lambda Function ARN
+    Value: !GetAtt InterviewAPI.Arn
+  InterviewAPILogGroup:
+    Description: CloudWatch Log Group for Interview API
+    Value: !Ref InterviewAPILogGroup 
