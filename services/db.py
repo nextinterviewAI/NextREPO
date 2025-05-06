@@ -15,7 +15,9 @@ MONGO_URI = os.getenv("MONGODB_URI")
 if not MONGO_URI:
     raise ValueError("MONGODB_URI environment variable is not set")
 
-DB_NAME = os.getenv("MONGODB_DB_NAME", "interview_db")
+DB_NAME = os.getenv("MONGODB_DB_NAME")
+if not DB_NAME:
+    raise ValueError("MONGODB_DB_NAME environment variable is not set")
 
 # Initialize MongoDB client
 client = AsyncIOMotorClient(MONGO_URI)
