@@ -131,11 +131,16 @@ async def submit_answer(
             quality = await check_answer_quality(session_data["questions"], session_data["topic"])
             if quality == "good":
                 session_data["question_count"] = question_count + 1
+                session_data["clarification_mode"] = True
                 await db.interview_sessions.update_one(
                     {"session_id": session_id},
-                    {"$set": {"questions": session_data["questions"], "question_count": session_data["question_count"]}}
+                    {"$set": {
+                        "questions": session_data["questions"], 
+                        "question_count": session_data["question_count"],
+                        "clarification_mode": True
+                    }}
                 )
-                return {"question": "You have the right approach for this question. You can start coding. If you have any doubts or need clarification regarding the main question, you can ask me."}
+                return {"question": "You have the right approach for this question. You can start coding. If you have any doubts or need clarification regarding the main question, you can ask me.", "clarification": True}
             else:
                 return {"question": "Your answers so far seem unclear or incomplete. Please review your responses and try to answer the questions more thoughtfully before proceeding to the coding phase."}
         elif question_count > 4 or clarification:

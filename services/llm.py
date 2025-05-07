@@ -117,8 +117,8 @@ async def get_next_question(questions: List[Dict], is_base_question: bool = Fals
 async def get_clarification(main_question: str, clarification_request: str) -> str:
     try:
         messages = [
-            {"role": "system", "content": "You are a technical interviewer helping a candidate understand the question better. Provide clear, concise clarifications without giving away the solution."},
-            {"role": "user", "content": f"Main question: {main_question}\n\nCandidate's clarification request: {clarification_request}\n\nPlease provide a helpful clarification:"}
+            {"role": "system", "content": "You are a technical interviewer helping a candidate understand the question better. Your role is to provide guidance using ONLY business operations language. STRICTLY FORBIDDEN: Do not use ANY of these terms: database, table, schema, SQL, query, data, relationship, entity, attribute, field, key, primary key, foreign key, normalization, join, store, organize, structure, track, manage, information, system, or any other technical terms. NEVER use words like 'create', 'establish', 'write', or 'design'. Instead, explain what the business needs to do in simple, operational terms. Use only words like 'customer', 'book', 'order', 'purchase', 'name', 'title', 'date', 'quantity', etc. If the candidate asks about technical details, explain what the business needs to do in simple terms that guide them to discover the solution themselves."},
+            {"role": "user", "content": f"Main question: {main_question}\n\nCandidate's clarification request: {clarification_request}\n\nProvide simple, business operations guidance:"}
         ]
         response = await client.chat.completions.create(
             model="gpt-3.5-turbo",

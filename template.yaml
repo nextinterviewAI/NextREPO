@@ -23,8 +23,9 @@ Resources:
         ApiEvent:
           Type: Api
           Properties:
-            Path: /{proxy+}
+            Path: /mock-interview-api
             Method: ANY
+            Stage: default
 
   InterviewAPILogGroup:
     Type: AWS::Logs::LogGroup
@@ -35,7 +36,7 @@ Resources:
 Outputs:
   InterviewAPI:
     Description: API Gateway endpoint URL
-    Value: !Sub 'https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/'
+    Value: !Sub 'https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/default/'
   InterviewAPIFunction:
     Description: Interview API Lambda Function ARN
     Value: !GetAtt InterviewAPI.Arn
