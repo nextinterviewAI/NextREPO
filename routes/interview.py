@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query, Body
 from typing import List, Dict
 from services.db import get_db, fetch_base_question, save_session_data, get_available_topics
 from services.llm import get_next_question, get_feedback, get_clarification, check_answer_quality
+from services.voice_chat import VoiceChatService
 from pydantic import BaseModel
 import logging
 from datetime import datetime
@@ -22,6 +23,7 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 router = APIRouter()
+voice_service = VoiceChatService()
 
 class InterviewInit(BaseModel):
     topic: str
@@ -39,6 +41,10 @@ class AnswerRequest(BaseModel):
 class ClarificationRequest(BaseModel):
     session_id: str
     question: str
+
+class VoiceAnswerRequest(BaseModel):
+    session_id: str
+    audio_data: str
 
 # In-memory storage for interview sessions
 interview_sessions = {}
@@ -122,7 +128,10 @@ async def submit_answer(
                     {"session_id": session_id},
                     {"$set": {"questions": session_data["questions"], "question_count": session_data["question_count"]}}
                 )
-                return {"question": next_question}
+                return {
+                    "question": next_question,
+                    "ready_to_code": False
+                }
             except Exception as e:
                 logger.error(f"Error generating next question: {str(e)}", exc_info=True)
                 raise HTTPException(status_code=500, detail=f"Error generating next question: {str(e)}")
@@ -140,9 +149,16 @@ async def submit_answer(
                         "clarification_mode": True
                     }}
                 )
-                return {"question": "You have the right approach for this question. You can start coding. If you have any doubts or need clarification regarding the main question, you can ask me.", "clarification": True}
+                return {
+                    "question": "Alright. You can start coding. If you have any doubts or need clarification regarding the main question, you can ask me.",
+                    "clarification": True,
+                    "ready_to_code": True
+                }
             else:
-                return {"question": "Your answers so far seem unclear or incomplete. Please review your responses and try to answer the questions more thoughtfully before proceeding to the coding phase."}
+                return {
+                    "question": "Your answers so far seem unclear or incomplete. Please review your responses and try to answer the questions more thoughtfully before proceeding to the coding phase.",
+                    "ready_to_code": False
+                }
         elif question_count > 4 or clarification:
             # Handle clarification (use get_clarification and store for feedback)
             try:
@@ -158,12 +174,18 @@ async def submit_answer(
                     {"session_id": session_id},
                     {"$set": {"clarifications": session_data["clarifications"]}}
                 )
-                return {"clarification": clarification_resp}
+                return {
+                    "clarification": clarification_resp,
+                    "ready_to_code": True  # Already in coding phase
+                }
             except Exception as e:
                 logger.error(f"Error generating clarification: {str(e)}", exc_info=True)
                 raise HTTPException(status_code=500, detail=f"Error generating clarification: {str(e)}")
         else:
-            return {"question": "You can only ask for clarifications regarding the main question."}
+            return {
+                "question": "You can only ask for clarifications regarding the main question.",
+                "ready_to_code": False
+            }
     except HTTPException:
         raise
     except Exception as e:
@@ -278,4 +300,87 @@ async def ask_clarification(clarification_request: ClarificationRequest):
         raise
     except Exception as e:
         logger.error(f"Error processing clarification request: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/voice-answer")
+async def submit_voice_answer(voice_request: VoiceAnswerRequest):
+    try:
+        # Process voice input
+        transcribed_text = await voice_service.process_voice_input(voice_request.audio_data, voice_request.session_id)
+        
+        # Get session data
+        db = await get_db()
+        session_data = await db.interview_sessions.find_one({"session_id": voice_request.session_id})
+        if not session_data:
+            raise HTTPException(status_code=404, detail="Interview session not found")
+            
+        # Update session with the transcribed text
+        if "questions" not in session_data:
+            session_data["questions"] = []
+        if session_data["questions"]:
+            session_data["questions"][-1]["answer"] = transcribed_text
+            
+        # Track question count
+        question_count = session_data.get("question_count", 1)
+        
+        # Interview flow logic
+        if question_count < 4:
+            # Generate next follow-up question
+            next_question = await get_next_question(session_data["questions"], topic=session_data["topic"])
+            session_data["questions"].append({"question": next_question, "answer": ""})
+            session_data["question_count"] = question_count + 1
+            
+            # Update session in database
+            await db.interview_sessions.update_one(
+                {"session_id": voice_request.session_id},
+                {"$set": {
+                    "questions": session_data["questions"],
+                    "question_count": session_data["question_count"]
+                }}
+            )
+            
+            return {
+                "status": "success",
+                "next_question": next_question,
+                "transcribed_text": transcribed_text,
+                "ready_to_code": False
+            }
+        elif question_count == 4:
+            # Check answer quality
+            quality = await check_answer_quality(session_data["questions"], session_data["topic"])
+            if quality == "good":
+                session_data["question_count"] = question_count + 1
+                session_data["clarification_mode"] = True
+                await db.interview_sessions.update_one(
+                    {"session_id": voice_request.session_id},
+                    {"$set": {
+                        "questions": session_data["questions"],
+                        "question_count": session_data["question_count"],
+                        "clarification_mode": True
+                    }}
+                )
+                return {
+                    "status": "success",
+                    "next_question": "Alright. You can start coding. If you have any doubts or need clarification regarding the main question, you can ask me.",
+                    "transcribed_text": transcribed_text,
+                    "ready_to_code": True
+                }
+            else:
+                return {
+                    "status": "success",
+                    "next_question": "Your answers so far seem unclear or incomplete. Please review your responses and try to answer the questions more thoughtfully before proceeding to the coding phase.",
+                    "transcribed_text": transcribed_text,
+                    "ready_to_code": False
+                }
+        else:
+            # Already in coding phase
+            return {
+                "status": "success",
+                "next_question": "You can continue with coding. If you need clarification, please ask.",
+                "transcribed_text": transcribed_text,
+                "ready_to_code": True
+            }
+        
+    except Exception as e:
+        logger.error(f"Error processing voice answer: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

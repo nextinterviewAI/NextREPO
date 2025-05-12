@@ -5,6 +5,7 @@ from fastapi import HTTPException
 import asyncio
 from typing import List, Dict
 import logging
+import json
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -24,7 +25,7 @@ logger.info("OpenAI API client initialized successfully")
 MAX_RETRIES = 3
 RETRY_DELAY = 1
 
-SYSTEM_PROMPT = """You are a senior data science interviewer with 10+ years of experience.
+SYSTEM_PROMPT = """You are a senior technical interviewer with 10+ years of experience.
 Your role is to conduct a technical interview focusing on the candidate's problem-solving approach.
 
 Guidelines:
@@ -35,7 +36,13 @@ Guidelines:
 5. Ask for specific examples and implementations
 6. Maintain a professional but conversational tone
 7. If the candidate's answer is unclear, ask for clarification
-8. Cover technical aspects of their approach: data handling, model selection, evaluation metrics, etc.
+8. After 4 good answers, transition to the coding phase
+9. During coding phase, act like a real interviewer:
+   - Never provide solutions or hints
+   - Guide candidates to think through problems
+   - Only respond to specific questions
+   - Focus on their problem-solving approach
+10. Keep questions focused and relevant to the topic
 
 Remember: Your goal is to assess the candidate's problem-solving skills and technical understanding, not to teach or provide answers."""
 
@@ -131,92 +138,106 @@ async def get_clarification(main_question: str, clarification_request: str) -> s
     except Exception as e:
         raise Exception(f"Error generating clarification: {str(e)}")
 
-async def get_feedback(conversation: List[Dict], user_name: str):
+async def get_feedback(conversation: List[Dict], user_name: str) -> str:
+    """Generate feedback based on the interview conversation"""
     try:
-        logger.info(f"Generating feedback for user: {user_name}")
+        # Format conversation for feedback
+        formatted_conversation = []
+        for msg in conversation:
+            if "question" in msg and "answer" in msg:
+                formatted_conversation.append(f"Interviewer: {msg['question']}")
+                formatted_conversation.append(f"Candidate: {msg['answer']}")
         
-        system_message = """You are a senior technical interviewer providing structured feedback.
-        Your feedback should be balanced, constructive, and help the candidate improve.
+        conversation_text = "\n".join(formatted_conversation)
         
-        Guidelines for feedback:
-        1. Be specific and provide examples from the interview
-        2. Include both strengths and areas for improvement
-        3. Focus on technical skills, problem-solving, and communication
-        4. Provide actionable suggestions for improvement
-        5. Be honest but professional in your assessment
+        # Create feedback prompt
+        feedback_prompt = f"""Based on the following interview conversation with {user_name}, provide a comprehensive and personalized feedback in JSON format. The feedback should:
+
+1. Include a personalized 2-3 line summary that specifically references {user_name}'s performance and unique aspects of their responses
+2. Provide three modules with exactly 3 points each, all personalized to {user_name}'s specific answers:
+   - Positive Points: What {user_name} did well, with specific examples from their responses
+   - Points to Address: Specific areas where {user_name}'s answers could be improved
+   - Areas for Improvement: Broader areas for {user_name}'s growth, based on their actual responses
+
+Guidelines:
+- Use {user_name}'s name in the summary
+- Reference specific examples from their answers
+- Be specific about what they said or didn't say
+- Focus on their unique responses, not generic feedback
+- If their answers were unclear or incorrect, explicitly state this
+- If they showed particular strengths, highlight those specific instances
+
+Format the response as a JSON object with the following structure:
+{{
+    "summary": "2-3 line personalized summary mentioning {user_name} and their specific performance",
+    "positive_points": [
+        "specific point about {user_name}'s good response",
+        "specific point about {user_name}'s good response",
+        "specific point about {user_name}'s good response"
+    ],
+    "points_to_address": [
+        "specific point about {user_name}'s response that needs improvement",
+        "specific point about {user_name}'s response that needs improvement",
+        "specific point about {user_name}'s response that needs improvement"
+    ],
+    "areas_for_improvement": [
+        "specific area where {user_name} could improve based on their responses",
+        "specific area where {user_name} could improve based on their responses",
+        "specific area where {user_name} could improve based on their responses"
+    ]
+}}
+
+Interview conversation:
+{conversation_text}
+
+Provide the feedback in the exact JSON format specified above, with no additional text or explanation. Ensure the response is valid JSON and specifically references {user_name}'s performance."""
         
-        Format your response as a JSON object with these exact keys:
-        {
-            "summary": "Brief overview of the interview performance",
-            "positive_points": ["List of specific strengths demonstrated"],
-            "points_to_address": ["List of immediate concerns that need attention"],
-            "areas_for_improvement": ["List of long-term development areas"]
-        }"""
-
-        prompt = """Based on the interview conversation, provide structured feedback for {user_name}.
-        Make sure to:
-        1. Identify at least 2-3 areas for improvement
-        2. Point out specific technical gaps or misunderstandings
-        3. Suggest ways to improve their approach
-        4. Be constructive but honest in your assessment
-
-        Interview conversation:
-        {conversation}
-        
-        Feedback:"""
-
-        messages = [
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": prompt.format(
-                user_name=user_name,
-                conversation=format_conversation(conversation)
-            )}
-        ]
-
-        logger.info(f"Sending request to OpenAI with messages: {messages}")
-
-        async def call_openai():
-            try:
-                response = await client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=messages,
-                    temperature=0.5,
-                    max_tokens=500,
-                    response_format={ "type": "json_object" }
-                )
-                if not response or not response.choices or not response.choices[0].message:
-                    raise ValueError("Invalid response from OpenAI API")
-                return response.choices[0].message.content.strip()
-            except openai.AuthenticationError as e:
-                logger.error("OpenAI Authentication Error: Invalid API key")
-                raise HTTPException(
-                    status_code=401,
-                    detail="Invalid OpenAI API key. Please check your API key in the .env file."
-                )
-            except openai.RateLimitError as e:
-                logger.error("OpenAI Rate Limit Error")
-                raise HTTPException(
-                    status_code=429,
-                    detail="OpenAI API rate limit exceeded. Please try again later."
-                )
-            except Exception as e:
-                logger.error(f"OpenAI API call failed: {str(e)}", exc_info=True)
-                raise
-
-        result = await retry_with_backoff(call_openai)
-        if not result:
-            raise ValueError("Empty response from OpenAI API")
-            
-        logger.info(f"Successfully generated feedback: {result}")
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error in get_feedback: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error generating feedback: {str(e)}. Please try again."
+        # Get feedback from OpenAI
+        response = await client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": f"You are an expert interviewer providing detailed, constructive feedback. Be specific and actionable in your feedback points. Always personalize feedback for {user_name} and reference their specific responses. Always return valid JSON."},
+                {"role": "user", "content": feedback_prompt}
+            ],
+            temperature=0.7,
+            max_tokens=1000,
+            response_format={ "type": "json_object" }
         )
+        
+        # Extract and validate the feedback
+        feedback = response.choices[0].message.content.strip()
+        
+        # Validate JSON format
+        try:
+            feedback_dict = json.loads(feedback)
+            
+            # Ensure all required fields are present
+            required_fields = ["summary", "positive_points", "points_to_address", "areas_for_improvement"]
+            for field in required_fields:
+                if field not in feedback_dict:
+                    raise ValueError(f"Missing required field: {field}")
+            
+            # Ensure each list has exactly 3 points
+            for field in ["positive_points", "points_to_address", "areas_for_improvement"]:
+                if not isinstance(feedback_dict[field], list) or len(feedback_dict[field]) != 3:
+                    raise ValueError(f"{field} must contain exactly 3 points")
+            
+            # Validate personalization
+            if user_name.lower() not in feedback_dict["summary"].lower():
+                raise ValueError("Summary must include the user's name")
+            
+            return feedback
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON format in feedback: {str(e)}")
+            raise Exception("Invalid feedback format received from OpenAI")
+        except ValueError as e:
+            logger.error(f"Invalid feedback structure: {str(e)}")
+            raise Exception(f"Invalid feedback structure: {str(e)}")
+        
+    except Exception as e:
+        logger.error(f"Error generating feedback: {str(e)}", exc_info=True)
+        raise Exception(f"Error generating feedback: {str(e)}")
 
 async def check_answer_quality(questions: List[Dict], topic: str) -> str:
     try:
