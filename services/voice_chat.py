@@ -6,6 +6,8 @@ from typing import Optional, Dict, Any
 import json
 from datetime import datetime
 import wave
+import os
+import tempfile
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +15,8 @@ class VoiceChatService:
     def __init__(self):
         self.recognizer = sr.Recognizer()
         self.active_sessions: Dict[str, Any] = {}
+        # Configure for Lambda environment
+        self.temp_dir = tempfile.gettempdir()
 
     async def process_voice_input(self, audio_data: str, session_id: str) -> str:
         """
@@ -32,12 +36,14 @@ class VoiceChatService:
             if len(audio_bytes) > 10 * 1024 * 1024:
                 raise ValueError("Audio file too large (max 10MB)")
             
-            # Create a BytesIO object with the WAV data
-            wav_io = io.BytesIO(audio_bytes)
+            # Create a temporary file for processing
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False, dir=self.temp_dir) as temp_file:
+                temp_file.write(audio_bytes)
+                temp_file_path = temp_file.name
             
-            # Validate WAV format
             try:
-                with wave.open(wav_io, 'rb') as wav_file:
+                # Validate WAV format
+                with wave.open(temp_file_path, 'rb') as wav_file:
                     # Check if it's a valid WAV file
                     if wav_file.getnchannels() != 1:
                         raise ValueError("Audio must be mono")
@@ -45,26 +51,28 @@ class VoiceChatService:
                         raise ValueError("Audio must be 16-bit")
                     if wav_file.getframerate() not in [8000, 16000, 32000, 44100, 48000]:
                         raise ValueError("Invalid sample rate")
-            except Exception as e:
-                raise ValueError(f"Invalid WAV format: {str(e)}")
-            
-            # Reset the BytesIO position
-            wav_io.seek(0)
-            
-            # Use speech recognition
-            with sr.AudioFile(wav_io) as source:
-                # Adjust for ambient noise
-                self.recognizer.adjust_for_ambient_noise(source)
-                audio_data = self.recognizer.record(source)
-                try:
-                    text = self.recognizer.recognize_google(audio_data)
-                except sr.UnknownValueError:
-                    raise ValueError("Could not understand audio")
-                except sr.RequestError as e:
-                    raise Exception(f"Could not request results from speech recognition service: {str(e)}")
                 
-            logger.info(f"Successfully processed voice input for session {session_id}")
-            return text
+                # Use speech recognition
+                with sr.AudioFile(temp_file_path) as source:
+                    # Adjust for ambient noise
+                    self.recognizer.adjust_for_ambient_noise(source)
+                    audio_data = self.recognizer.record(source)
+                    try:
+                        text = self.recognizer.recognize_google(audio_data)
+                    except sr.UnknownValueError:
+                        raise ValueError("Could not understand audio")
+                    except sr.RequestError as e:
+                        raise Exception(f"Could not request results from speech recognition service: {str(e)}")
+                
+                logger.info(f"Successfully processed voice input for session {session_id}")
+                return text
+                
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_file_path)
+                except Exception as e:
+                    logger.warning(f"Failed to delete temporary file {temp_file_path}: {str(e)}")
             
         except Exception as e:
             logger.error(f"Error processing voice input: {str(e)}")
@@ -76,7 +84,8 @@ class VoiceChatService:
         """
         self.active_sessions[session_id] = {
             "messages": [],
-            "status": "active"
+            "status": "active",
+            "created_at": str(datetime.now())
         }
 
     async def add_chat_message(self, session_id: str, message: str, is_user: bool = True) -> None:

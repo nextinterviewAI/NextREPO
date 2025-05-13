@@ -8,7 +8,6 @@ New-Item -ItemType Directory -Force -Path "deployment_package"
 # Copy main application files
 Copy-Item "main.py" -Destination "deployment_package/"
 Copy-Item "lambda_handler.py" -Destination "deployment_package/"
-Copy-Item "requirements.txt" -Destination "deployment_package/"
 
 # Create directories
 New-Item -ItemType Directory -Force -Path "deployment_package/services"
@@ -24,25 +23,31 @@ Copy-Item "routes/*.py" -Destination "deployment_package/routes/" -Recurse
 # Copy model files
 Copy-Item "models/*.py" -Destination "deployment_package/models/" -Recurse
 
+# Create and activate virtual environment
+python -m venv venv-lambda
+.\venv-lambda\Scripts\Activate.ps1
+
 # Install dependencies in the deployment package
 Set-Location deployment_package
 
 # Install all requirements
-python -m pip install --upgrade --force-reinstall -r requirements.txt -t .
+python -m pip install --upgrade pip
+python -m pip install -r ../requirements.txt -t .
 
 # Remove unnecessary files to reduce package size
-Remove-Item -Recurse -Force -ErrorAction SilentlyContinue *.dist-info
-Remove-Item -Recurse -Force -ErrorAction SilentlyContinue *.egg-info
-Remove-Item -Recurse -Force -ErrorAction SilentlyContinue __pycache__
-Remove-Item -Recurse -Force -ErrorAction SilentlyContinue tests
-Remove-Item -Recurse -Force -ErrorAction SilentlyContinue test
-Remove-Item -Recurse -Force -ErrorAction SilentlyContinue docs
-Remove-Item -Recurse -Force -ErrorAction SilentlyContinue *.pyc
+Get-ChildItem -Recurse -Include *.dist-info,*.egg-info,__pycache__,tests,test,docs,*.pyc,*.pyo | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
+# Optionally remove sounddevice if not needed (uncomment if not required)
+# Remove-Item -Recurse -Force -ErrorAction SilentlyContinue sounddevice*
 
 # Create zip file
 Compress-Archive -Path * -DestinationPath "../lambda_function.zip" -Force
 
 # Return to original directory
 Set-Location ..
+
+# Clean up
+deactivate
+Remove-Item -Recurse -Force venv-lambda
 
 Write-Host "Deployment package created at lambda_function.zip" 

@@ -79,6 +79,8 @@ async def startup_event():
             raise ValueError("MONGODB_URI environment variable is not set")
         if not os.getenv("DB_NAME"):
             raise ValueError("DB_NAME environment variable is not set")
+        if not os.getenv("OPENAI_API_KEY"):
+            raise ValueError("OPENAI_API_KEY environment variable is not set")
             
         logger.info("Environment variables validated")
             
@@ -108,6 +110,32 @@ async def startup_event():
 
 # Include the interview router
 app.include_router(interview_router, prefix="/mock-interview-api")
+
+@app.get("/health")
+async def health_check():
+    """
+    Health check endpoint for monitoring
+    """
+    try:
+        # Check database connection
+        db = await get_db()
+        await db.command("ping")
+        
+        return {
+            "status": "healthy",
+            "database": "connected",
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "error": str(e),
+                "timestamp": time.time()
+            }
+        )
 
 # For local development
 if __name__ == "__main__":
