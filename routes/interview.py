@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException, Depends, Query, Body
-from typing import List, Dict
+from fastapi import APIRouter, HTTPException, Depends, Query, Body, Request
+from typing import List, Dict, Any
 from services.db import get_db, fetch_base_question, save_session_data, get_available_topics
 from services.llm import get_next_question, get_feedback, get_clarification, check_answer_quality
 from services.voice_chat import VoiceChatService
+from services.approach_analysis import ApproachAnalysisService
 from pydantic import BaseModel
 import logging
 from datetime import datetime
@@ -24,6 +25,7 @@ logger.addHandler(handler)
 
 router = APIRouter()
 voice_service = VoiceChatService()
+approach_service = ApproachAnalysisService()
 
 class InterviewInit(BaseModel):
     topic: str
@@ -45,6 +47,10 @@ class ClarificationRequest(BaseModel):
 class VoiceAnswerRequest(BaseModel):
     session_id: str
     audio_data: str
+
+class ApproachAnalysisRequest(BaseModel):
+    question: str
+    user_answer: str
 
 # In-memory storage for interview sessions
 interview_sessions = {}
@@ -383,4 +389,30 @@ async def submit_voice_answer(voice_request: VoiceAnswerRequest):
         
     except Exception as e:
         logger.error(f"Error processing voice answer: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/analyze-approach")
+async def analyze_approach(request: ApproachAnalysisRequest) -> Dict[str, Any]:
+    """
+    Analyze the user's approach to a question and provide feedback.
+    
+    Args:
+        request (ApproachAnalysisRequest): The request containing question and user answer
+        
+    Returns:
+        Dict containing:
+        - feedback (str): Detailed feedback on the approach
+        - strengths (list): List of identified strengths
+        - areas_for_improvement (list): List of areas to improve
+        - score (int): Score out of 10
+    """
+    try:
+        analysis = await approach_service.analyze_approach(
+            question=request.question,
+            user_answer=request.user_answer
+        )
+        return analysis
+        
+    except Exception as e:
+        logger.error(f"Error in approach analysis: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
