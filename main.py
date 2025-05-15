@@ -111,6 +111,7 @@ async def startup_event():
 # Include the interview router
 app.include_router(interview_router, prefix="/mock-interview-api")
 
+
 @app.get("/health")
 async def health_check():
     """

@@ -10,11 +10,11 @@ from datetime import datetime
 import io
 import json
 import time
-
+ 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
+ 
 # Create a StringIO handler to capture logs
 log_capture_string = io.StringIO()
 handler = logging.StreamHandler(log_capture_string)
@@ -22,48 +22,48 @@ handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
-
+ 
 router = APIRouter()
 voice_service = VoiceChatService()
 approach_service = ApproachAnalysisService()
-
+ 
 class InterviewInit(BaseModel):
     topic: str
     user_name: str
-
+ 
 class InterviewResponse(BaseModel):
     question: str
     answer: str = ""
-
+ 
 class AnswerRequest(BaseModel):
     session_id: str
     answer: str
     clarification: bool = False
-
+ 
 class ClarificationRequest(BaseModel):
     session_id: str
     question: str
-
+ 
 class VoiceAnswerRequest(BaseModel):
     session_id: str
     audio_data: str
-
+ 
 class ApproachAnalysisRequest(BaseModel):
     question: str
     user_answer: str
-
+ 
 # In-memory storage for interview sessions
 interview_sessions = {}
-
+ 
 @router.post("/init")
 async def init_interview(init_data: InterviewInit):
     try:
         # Generate session ID
         session_id = f"{init_data.user_name}_{init_data.topic}_{time.time()}"
-        
+       
         # Get base question
         base_question_data = await fetch_base_question(init_data.topic)
-        
+       
         # Save initial session data
         await save_session_data(session_id, {
             "user_name": init_data.user_name,
@@ -73,14 +73,14 @@ async def init_interview(init_data: InterviewInit):
                 "answer": ""
             }]
         })
-        
+       
         # Get first follow-up question
         try:
             first_follow_up = await get_next_question([], is_base_question=True, topic=init_data.topic)
         except Exception as e:
             logger.error(f"Error generating follow-up question: {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error generating follow-up question: {str(e)}")
-        
+       
         return {
             "session_id": session_id,
             "base_question": base_question_data["question"],
@@ -88,6 +88,7 @@ async def init_interview(init_data: InterviewInit):
             "example": base_question_data["example"],
             "code_stub": base_question_data["code_stub"],
             "tags": base_question_data["tags"],
+            "language": base_question_data["language"],
             "first_follow_up": first_follow_up
         }
     except HTTPException:
@@ -95,7 +96,7 @@ async def init_interview(init_data: InterviewInit):
     except Exception as e:
         logger.error(f"Unexpected error initializing interview: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
+ 
 @router.post("/answer")
 async def submit_answer(
     answer_request: AnswerRequest = Body(...)
@@ -105,24 +106,28 @@ async def submit_answer(
         answer = answer_request.answer
         clarification = answer_request.clarification
         logger.error(f"Submitting answer for session: {session_id}")
-        
+       
         # Get session data from database
         db = await get_db()
         session_data = await db.interview_sessions.find_one({"session_id": session_id})
         if not session_data:
             logger.error(f"Session not found: {session_id}")
             raise HTTPException(status_code=404, detail="Interview session not found")
-        
+       
         # Track question count
         question_count = session_data.get("question_count", 1)
-        
+       
+        # Get the original question data for language info
+        topic = session_data.get("topic")
+        base_question_data = await fetch_base_question(topic)
+       
         # Update session data with the answer (if not clarification)
         if not clarification:
             if "questions" not in session_data:
                 session_data["questions"] = []
             if session_data["questions"]:
                 session_data["questions"][-1]["answer"] = answer
-        
+       
         # Interview flow logic
         if question_count < 4 and not clarification:
             # Generate next follow-up question
@@ -136,7 +141,8 @@ async def submit_answer(
                 )
                 return {
                     "question": next_question,
-                    "ready_to_code": False
+                    "ready_to_code": False,
+                    "language": base_question_data["language"]
                 }
             except Exception as e:
                 logger.error(f"Error generating next question: {str(e)}", exc_info=True)
@@ -150,7 +156,7 @@ async def submit_answer(
                 await db.interview_sessions.update_one(
                     {"session_id": session_id},
                     {"$set": {
-                        "questions": session_data["questions"], 
+                        "questions": session_data["questions"],
                         "question_count": session_data["question_count"],
                         "clarification_mode": True
                     }}
@@ -158,12 +164,16 @@ async def submit_answer(
                 return {
                     "question": "Alright. You can start coding. If you have any doubts or need clarification regarding the main question, you can ask me.",
                     "clarification": True,
-                    "ready_to_code": True
+                    "ready_to_code": True,
+                    "code_stub": base_question_data["code_stub"],
+                    "language": base_question_data["language"],
+                    "tags": base_question_data["tags"]
                 }
             else:
                 return {
                     "question": "Your answers so far seem unclear or incomplete. Please review your responses and try to answer the questions more thoughtfully before proceeding to the coding phase.",
-                    "ready_to_code": False
+                    "ready_to_code": False,
+                    "language": base_question_data["language"]
                 }
         elif question_count > 4 or clarification:
             # Handle clarification (use get_clarification and store for feedback)
@@ -182,7 +192,8 @@ async def submit_answer(
                 )
                 return {
                     "clarification": clarification_resp,
-                    "ready_to_code": True  # Already in coding phase
+                    "ready_to_code": True,  # Already in coding phase
+                    "language": base_question_data["language"]
                 }
             except Exception as e:
                 logger.error(f"Error generating clarification: {str(e)}", exc_info=True)
@@ -190,14 +201,15 @@ async def submit_answer(
         else:
             return {
                 "question": "You can only ask for clarifications regarding the main question.",
-                "ready_to_code": False
+                "ready_to_code": False,
+                "language": base_question_data["language"]
             }
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error submitting answer: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
+ 
 @router.get("/feedback/{session_id}")
 async def get_interview_feedback(session_id: str):
     try:
@@ -207,7 +219,7 @@ async def get_interview_feedback(session_id: str):
         if not session_data:
             logger.error(f"Session not found: {session_id}")
             raise HTTPException(status_code=404, detail="Interview session not found")
-            
+           
         # Format conversation for feedback
         conversation = []
         for q in session_data.get("questions", []):
@@ -216,38 +228,38 @@ async def get_interview_feedback(session_id: str):
                     "question": q["question"],
                     "answer": q["answer"]
                 })
-                
+               
         # Add clarifications to conversation for feedback
         for clar in session_data.get("clarifications", []):
             conversation.append({
                 "question": f"[Clarification] {clar['clarification']}",
                 "answer": clar["response"]
             })
-                
+               
         if not conversation:
             logger.error(f"No conversation found for session: {session_id}")
             raise HTTPException(status_code=404, detail="No conversation found for this session")
-            
+           
         # Get feedback
         feedback_json = await get_feedback(conversation, session_data["user_name"])
-        
+       
         # Parse the JSON feedback
         try:
             feedback = json.loads(feedback_json)
         except json.JSONDecodeError as e:
             logger.error(f"Error parsing feedback JSON: {str(e)}")
             raise HTTPException(status_code=500, detail="Error parsing feedback")
-        
+       
         # Delete the session from database
         await db.interview_sessions.delete_one({"session_id": session_id})
-        
+       
         return feedback
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error getting feedback: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
+ 
 @router.get("/topics")
 async def get_topics():
     """Get list of available interview topics"""
@@ -257,7 +269,7 @@ async def get_topics():
     except Exception as e:
         logger.error(f"Error getting topics: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
+ 
 @router.get("/logs")
 async def get_logs():
     """Get the latest logs"""
@@ -268,24 +280,24 @@ async def get_logs():
     except Exception as e:
         logger.error(f"Error getting logs: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
+ 
 @router.post("/clarify")
 async def ask_clarification(clarification_request: ClarificationRequest):
     try:
         logger.info(f"Requesting clarification for session: {clarification_request.session_id}")
-        
+       
         # Get session data from database
         db = await get_db()
         session_data = await db.interview_sessions.find_one({"session_id": clarification_request.session_id})
         if not session_data:
             logger.error(f"Session not found: {clarification_request.session_id}")
             raise HTTPException(status_code=404, detail="Interview session not found")
-            
+           
         # Get the current question
         current_question = session_data["questions"][0]["question"] if session_data["questions"] else None
         if not current_question:
             raise HTTPException(status_code=404, detail="No main question found")
-            
+           
         # Generate clarification response
         try:
             clarification_resp = await get_clarification(current_question, clarification_request.question)
@@ -301,41 +313,41 @@ async def ask_clarification(clarification_request: ClarificationRequest):
         except Exception as e:
             logger.error(f"Error generating clarification: {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error generating clarification: {str(e)}")
-            
+           
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error processing clarification request: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
+ 
 @router.post("/voice-answer")
 async def submit_voice_answer(voice_request: VoiceAnswerRequest):
     try:
         # Process voice input
         transcribed_text = await voice_service.process_voice_input(voice_request.audio_data, voice_request.session_id)
-        
+       
         # Get session data
         db = await get_db()
         session_data = await db.interview_sessions.find_one({"session_id": voice_request.session_id})
         if not session_data:
             raise HTTPException(status_code=404, detail="Interview session not found")
-            
+           
         # Update session with the transcribed text
         if "questions" not in session_data:
             session_data["questions"] = []
         if session_data["questions"]:
             session_data["questions"][-1]["answer"] = transcribed_text
-            
+           
         # Track question count
         question_count = session_data.get("question_count", 1)
-        
+       
         # Interview flow logic
         if question_count < 4:
             # Generate next follow-up question
             next_question = await get_next_question(session_data["questions"], topic=session_data["topic"])
             session_data["questions"].append({"question": next_question, "answer": ""})
             session_data["question_count"] = question_count + 1
-            
+           
             # Update session in database
             await db.interview_sessions.update_one(
                 {"session_id": voice_request.session_id},
@@ -344,7 +356,7 @@ async def submit_voice_answer(voice_request: VoiceAnswerRequest):
                     "question_count": session_data["question_count"]
                 }}
             )
-            
+           
             return {
                 "status": "success",
                 "next_question": next_question,
@@ -386,19 +398,19 @@ async def submit_voice_answer(voice_request: VoiceAnswerRequest):
                 "transcribed_text": transcribed_text,
                 "ready_to_code": True
             }
-        
+       
     except Exception as e:
         logger.error(f"Error processing voice answer: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
+ 
 @router.post("/analyze-approach")
 async def analyze_approach(request: ApproachAnalysisRequest) -> Dict[str, Any]:
     """
     Analyze the user's approach to a question and provide feedback.
-    
+   
     Args:
         request (ApproachAnalysisRequest): The request containing question and user answer
-        
+       
     Returns:
         Dict containing:
         - feedback (str): Detailed feedback on the approach
@@ -412,7 +424,8 @@ async def analyze_approach(request: ApproachAnalysisRequest) -> Dict[str, Any]:
             user_answer=request.user_answer
         )
         return analysis
-        
+       
     except Exception as e:
         logger.error(f"Error in approach analysis: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+ 
