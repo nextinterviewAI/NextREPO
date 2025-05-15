@@ -11,3 +11,7 @@ class AnswerRequest(BaseModel):
 class FeedbackRequest(BaseModel):
     session_id: str
     user_name: str
+
+class CodeOptimizationRequest(BaseModel):
+    question: str
+    user_code_snippet: str

@@ -267,3 +267,26 @@ async def check_answer_quality(questions: List[Dict], topic: str) -> str:
         return "bad"
     except Exception as e:
         raise Exception(f"Error checking answer quality: {str(e)}")
+
+async def generate_optimized_code(question: str, user_code: str) -> str:
+    try:
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a senior software engineer specializing in writing clean, efficient, and maintainable code. Your task is to review and optimize the provided code snippet based on best practices, readability, performance, and correctness."
+            },
+            {
+                "role": "user",
+                "content": f"Question Context: {question}\n\nUser Code:\n{user_code}\n\nPlease provide an optimized version of this code and explain the changes made."
+            }
+        ]
+        response = await client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=messages,
+            temperature=0.4,
+            max_tokens=500
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.error(f"Error generating optimized code: {str(e)}", exc_info=True)
+        raise

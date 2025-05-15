@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, Body, Request
 from typing import List, Dict, Any
 from services.db import get_db, fetch_base_question, save_session_data, get_available_topics
-from services.llm import get_next_question, get_feedback, get_clarification, check_answer_quality
+from services.llm import generate_optimized_code, get_next_question, get_feedback, get_clarification, check_answer_quality
 from services.voice_chat import VoiceChatService
 from services.approach_analysis import ApproachAnalysisService
 from pydantic import BaseModel
@@ -26,6 +26,10 @@ logger.addHandler(handler)
 router = APIRouter()
 voice_service = VoiceChatService()
 approach_service = ApproachAnalysisService()
+
+class CodeOptimizationRequest(BaseModel):
+    question: str
+    user_code_snippet: str
  
 class InterviewInit(BaseModel):
     topic: str
@@ -208,6 +212,18 @@ async def submit_answer(
         raise
     except Exception as e:
         logger.error(f"Error submitting answer: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.post("/optimize-code")
+async def optimize_code(request: CodeOptimizationRequest):
+    try:
+        optimized_code = await generate_optimized_code(
+            question=request.question,
+            user_code=request.user_code_snippet
+        )
+        return {"optimized_code": optimized_code}
+    except Exception as e:
+        logger.error(f"Error optimizing code: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
  
 @router.get("/feedback/{session_id}")
