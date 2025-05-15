@@ -109,6 +109,7 @@ async def startup_event():
             raise
 
 # Include the interview router
+
 app.include_router(interview_router, prefix="/mock-interview-api")
 
 

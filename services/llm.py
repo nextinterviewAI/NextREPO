@@ -268,23 +268,34 @@ async def check_answer_quality(questions: List[Dict], topic: str) -> str:
     except Exception as e:
         raise Exception(f"Error checking answer quality: {str(e)}")
 
-async def generate_optimized_code(question: str, user_code: str) -> str:
+async def generate_optimized_code(
+    question: str,
+    user_code: str,
+    sample_input: str,
+    sample_output: str
+) -> str:
     try:
         messages = [
             {
                 "role": "system",
-                "content": "You are a senior software engineer specializing in writing clean, efficient, and maintainable code. Your task is to review and optimize the provided code snippet based on best practices, readability, performance, and correctness."
+                "content": "You are a senior software engineer specializing in writing clean, efficient, and maintainable code. Your task is to review and optimize the provided code snippet based on best practices, readability, performance, correctness, and alignment with the expected input/output behavior."
             },
             {
                 "role": "user",
-                "content": f"Question Context: {question}\n\nUser Code:\n{user_code}\n\nPlease provide an optimized version of this code and explain the changes made."
+                "content": (
+                    f"Question Context: {question}\n"
+                    f"Sample Input: {sample_input}\n"
+                    f"Expected Output: {sample_output}\n\n"
+                    f"User Code:\n{user_code}\n\n"
+                    "Please provide an optimized version of this code, ensuring it works correctly for the given sample input and produces the expected output. Explain the changes made."
+                )
             }
         ]
         response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=messages,
             temperature=0.4,
-            max_tokens=500
+            max_tokens=500  # Increased token limit for more complex explanations
         )
         return response.choices[0].message.content.strip()
     except Exception as e:

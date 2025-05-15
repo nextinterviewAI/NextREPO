@@ -64,7 +64,7 @@ async def fetch_base_question(topic: str):
         # Get language with SQL default for SQL Modelling topic
         language = question.get("language")
         if topic == "SQL Modelling":
-            language = "sql"
+            language = "mysql"
         elif not language:
             language = "python"  # Default to python if not specified
            
