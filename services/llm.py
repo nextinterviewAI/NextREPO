@@ -287,17 +287,19 @@ async def generate_optimized_code(
                     f"Sample Input: {sample_input}\n"
                     f"Expected Output: {sample_output}\n\n"
                     f"User Code:\n{user_code}\n\n"
-                    "Please provide an optimized version of this code, ensuring it works correctly for the given sample input and produces the expected output. Explain the changes made."
+                    "Please provide an optimized version of this code, ensuring it works correctly for the given sample input and produces the expected output. Do not add any additional explanations or comments. Just provide the optimized code. make sure to not leave out any current functionality of the code.\n\n"
                 )
             }
         ]
         response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=messages,
-            temperature=0.4,
-            max_tokens=500  # Increased token limit for more complex explanations
+            temperature=0.2,  # Lower temperature for more deterministic output
+            max_tokens=1000,
+            stop=["\n\n"]  # Optional: helps prevent extra text after code
         )
-        return response.choices[0].message.content.strip()
+        content = response.choices[0].message.content.strip()
+        return content
     except Exception as e:
         logger.error(f"Error generating optimized code: {str(e)}", exc_info=True)
         raise
