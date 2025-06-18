@@ -33,6 +33,13 @@ class ApproachAnalysisService:
             - areas_for_improvement (list): List of areas to improve
             - score (int): Score out of 10
         """
+        fallback_response = {
+            "feedback": "Unable to analyze approach due to an internal error.",
+            "strengths": [],
+            "areas_for_improvement": ["Could not retrieve analysis"],
+            "score": 0
+        }
+
         try:
             prompt = f"""
             Question: {question}
@@ -63,27 +70,33 @@ class ApproachAnalysisService:
                 max_tokens=1000
             )
 
-            # Parse the response
-            analysis_text = response.choices[0].message.content.strip()
-            
-            # Remove any markdown formatting if present
+            # Handle possible empty response
+            if not response or not response.choices:
+                logger.error("Empty response or no choices from OpenAI")
+                return fallback_response
+
+            message = response.choices[0].message
+            analysis_text = getattr(message, 'content', None)
+
+            if not analysis_text:
+                logger.error("OpenAI response content is missing or None")
+                return fallback_response
+
+            # Remove markdown if present
+            analysis_text = analysis_text.strip()
             if analysis_text.startswith("```json"):
                 analysis_text = analysis_text[7:]
             if analysis_text.endswith("```"):
                 analysis_text = analysis_text[:-3]
-            
-            # Parse JSON
+
+            # Try parsing the JSON
             try:
                 analysis = json.loads(analysis_text)
                 return analysis
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse JSON response: {analysis_text}")
-                raise Exception(f"Invalid JSON response from analysis: {str(e)}")
+                return fallback_response
 
         except Exception as e:
             logger.error(f"Error in approach analysis: {str(e)}", exc_info=True)
-            raise Exception(f"Error in approach analysis: {str(e)}") 
-        
-        
-        
-    
+            return fallback_response

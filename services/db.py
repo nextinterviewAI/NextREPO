@@ -28,60 +28,54 @@ async def get_db():
     return db
  
 async def fetch_base_question(topic: str):
-    """Fetch base question for a topic"""
+    """Fetch base question for a topic from mainquestionbanks"""
     try:
-        logger.error(f"Attempting to fetch base question for topic: {topic}")
-       
-        # First find the topic document
-        logger.error(f"Searching for topic document with topic: {topic}")
+        logger.info(f"Fetching base question for topic: {topic}")
+        
+        # Step 1: Get topic document to find its ID
         topic_doc = await db.interview_topics.find_one({"topic": topic})
-       
         if not topic_doc:
-            all_topics = await db.interview_topics.find({}).to_list(length=None)
-            logger.error(f"All topic documents: {all_topics}")
-            available_topics = []
-            for t in all_topics:
-                if "topic" in t:
-                    available_topics.append(t["topic"])
-            logger.error(f"Topic '{topic}' not found in database. Available topics are: {available_topics}")
             raise Exception(f"Topic '{topic}' not found")
-           
-        logger.error(f"Found topic document: {topic_doc}")
-       
-        # Then find the question for this topic using the topic's _id
-        topic_id = str(topic_doc.get("_id"))
-        logger.error(f"Searching for questions with topic_id: {topic_id}")
-        question = await db.interview_questions.find_one({"topic_id": topic_id})
-       
-        if not question:
-            logger.error(f"No questions found for topic '{topic}' with ID {topic_id}")
+        
+        topic_id = str(topic_doc["_id"])
+        logger.info(f"Found topic ID: {topic_id}")
+
+        # Step 2: Aggregate to get one random mock-available question
+        pipeline = [
+            {
+                "$match": {
+                    "topicId": topic_id,
+                    "isAvailableForMock": True,
+                    "isDeleted": False
+                }
+            },
+            {"$sample": {"size": 1}}
+        ]
+
+        cursor = db.mainquestionbanks.aggregate(pipeline)
+        result = await cursor.to_list(length=1)
+
+        if not result:
+            logger.warning(f"No questions found for topic '{topic}'")
             raise Exception(f"No questions found for topic '{topic}'")
-           
-        logger.error(f"Selected question document: {question}")
-        logger.error(f"Question language field: {question.get('language')}")
-       
-        # Get language with SQL default for SQL Modelling topic
-        language = question.get("language")
-        if topic == "SQL Modelling":
-            language = "mysql"
-        elif not language:
-            language = "python"  # Default to python if not specified
-           
-        logger.error(f"Final language value: {language}")
-       
-        # Return the complete question document
+
+        question_doc = result[0]
+        logger.info(f"Fetched question: {question_doc.get('question', 'No question text')}")
+
+        # Return standardized structure expected by route
         return {
-            "question": question.get("question", ""),
-            "difficulty": question.get("difficulty", "Medium"),
-            "example": question.get("example", ""),
-            "code_stub": question.get("code_stub", ""),
-            "tags": question.get("tags", []),
-            "language": language  # Use the processed language value
+            "question": question_doc.get("question", ""),
+            "code_stub": question_doc.get("base_code", ""),
+            "language": question_doc.get("programming_language", ""),
+            "difficulty": question_doc.get("level", ""),
+            "example": question_doc.get("description", ""),
+            "tags": [t["topic_name"] for t in question_doc.get("topics", [])]
         }
+
     except Exception as e:
         logger.error(f"Error fetching base question: {str(e)}", exc_info=True)
         raise
- 
+    
 async def save_session_data(session_id: str, data: dict):
     """Save interview session data"""
     try:
@@ -132,25 +126,29 @@ async def get_available_topics():
         raise
  
 async def check_collections():
-    """Check MongoDB collections and their contents"""
+    """Check MongoDB collections and their contents (updated version)"""
     try:
         # List all collections
         collections = await db.list_collection_names()
-        logger.error(f"Available collections: {collections}")
-       
+        logger.info(f"Available collections: {collections}")
+
         # Check interview_topics collection
         if "interview_topics" in collections:
-            topics = await db.interview_topics.find({}).to_list(length=None)
-            logger.error(f"Topics in interview_topics collection: {topics}")
+            topics = await db.interview_topics.find({}).to_list(length=10)
+            logger.info(f"Topics in interview_topics collection: {topics}")
         else:
-            logger.error("interview_topics collection does not exist")
-           
-        # Check interview_questions collection
-        if "interview_questions" in collections:
-            questions = await db.interview_questions.find({}).to_list(length=None)
-            logger.error(f"Questions in interview_questions collection: {questions}")
+            logger.info("interview_topics collection does not exist")
+
+        # Check mainquestionbanks collection (your new source of questions)
+        if "mainquestionbanks" in collections:
+            sample = await db.mainquestionbanks.find(
+                {}, 
+                {"question": 1, "topicId": 1, "isAvailableForMock": 1}
+            ).limit(5).to_list(length=5)
+            logger.info(f"Sample from mainquestionbanks: {sample}")
         else:
-            logger.error("interview_questions collection does not exist")
+            logger.info("mainquestionbanks collection does not exist")
+
     except Exception as e:
         logger.error(f"Error checking collections: {str(e)}", exc_info=True)
         raise
