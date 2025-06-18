@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from routes.interview import router as interview_router
+from routes.mock_interview import router as mock_interview_router
+from routes.code_optimization import router as code_optimization_router
+from routes.approach_analysis import router as approach_analysis_router
 from services.db import create_indexes, get_db, check_collections
 import logging
 import asyncio
@@ -10,20 +12,17 @@ import os
 import traceback
 import sys
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    stream=sys.stdout  # Ensure logs go to CloudWatch
+    stream=sys.stdout  
 )
 logger = logging.getLogger(__name__)
 
-# Check if running in Lambda
 IS_LAMBDA = bool(os.getenv('AWS_LAMBDA_FUNCTION_NAME'))
 
 app = FastAPI(title="Mock Interview API")
 
-# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,10 +34,8 @@ app.add_middleware(
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     try:
-        # Log the incoming request
         logger.info(f"Incoming request - Path: {request.url.path}, Method: {request.method}")
         
-        # Log environment variables (without sensitive values)
         env_vars = {k: v for k, v in os.environ.items() if k in ['MONGODB_URI', 'DB_NAME']}
         logger.info(f"Environment variables present: {list(env_vars.keys())}")
         
@@ -108,9 +105,9 @@ async def startup_event():
         if IS_LAMBDA:
             raise
 
-# Include the interview router
-
-app.include_router(interview_router, prefix="/mock-interview-api")
+app.include_router(mock_interview_router, prefix="/mock-interview")
+app.include_router(code_optimization_router, prefix="/code")
+app.include_router(approach_analysis_router, prefix="/approach")
 
 
 @app.get("/health")
@@ -139,7 +136,6 @@ async def health_check():
             }
         )
 
-# For local development
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

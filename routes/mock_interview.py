@@ -1,6 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Body
 from services.db import get_db, fetch_base_question, save_session_data, get_available_topics
-from services.llm import get_next_question, get_feedback, get_clarification, check_answer_quality
+from services.llm.interview import get_next_question
+from services.llm.feedback import get_feedback
+from services.llm.clarification import get_clarification
+from services.llm.check_answer_quality import check_answer_quality
 from models.schemas import InterviewInit, AnswerRequest, ClarificationRequest
 import logging
 from datetime import datetime
@@ -193,7 +196,7 @@ async def get_interview_feedback(session_id: str):
         feedback_json = await get_feedback(conversation, session_data["user_name"])
 
         try:
-            feedback = feedback_json  # Assume already parsed
+            feedback = feedback_json  
         except Exception as e:
             logger.error(f"Error parsing feedback JSON: {str(e)}")
             raise HTTPException(status_code=500, detail="Error parsing feedback")
