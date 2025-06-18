@@ -284,7 +284,7 @@ async def generate_optimized_code(
                 "role": "user",
                 "content": (
                     f"Question Context: {question}\n"
-                    f"Sample Input: {sample_input}\n"
+                    f"Sample Input: {sample_input}\n" 
                     f"Expected Output: {sample_output}\n\n"
                     f"User Code:\n{user_code}\n\n"
                     "Please provide an optimized version of this code, ensuring it works correctly for the given sample input and produces the expected output. Do not add any additional explanations or comments. Just provide the optimized code. make sure to not leave out any current functionality of the code.\n\n"

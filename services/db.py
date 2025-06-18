@@ -37,7 +37,6 @@ async def fetch_base_question(topic: str):
         topic_doc = await db.interview_topics.find_one({"topic": topic})
        
         if not topic_doc:
-            # Log all available topics for debugging
             all_topics = await db.interview_topics.find({}).to_list(length=None)
             logger.error(f"All topic documents: {all_topics}")
             available_topics = []

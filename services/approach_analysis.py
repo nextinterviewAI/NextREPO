@@ -83,3 +83,7 @@ class ApproachAnalysisService:
         except Exception as e:
             logger.error(f"Error in approach analysis: {str(e)}", exc_info=True)
             raise Exception(f"Error in approach analysis: {str(e)}") 
+        
+        
+        
+    

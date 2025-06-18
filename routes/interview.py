@@ -2,7 +2,6 @@ from fastapi import APIRouter, HTTPException, Depends, Query, Body, Request
 from typing import List, Dict, Any
 from services.db import get_db, fetch_base_question, save_session_data, get_available_topics
 from services.llm import generate_optimized_code, get_next_question, get_feedback, get_clarification, check_answer_quality
-from services.voice_chat import VoiceChatService
 from services.approach_analysis import ApproachAnalysisService
 from pydantic import BaseModel
 import logging
@@ -24,7 +23,6 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
  
 router = APIRouter()
-voice_service = VoiceChatService()
 approach_service = ApproachAnalysisService()
 
 class CodeOptimizationRequest(BaseModel):
@@ -339,93 +337,6 @@ async def ask_clarification(clarification_request: ClarificationRequest):
     except Exception as e:
         logger.error(f"Error processing clarification request: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
- 
-@router.post("/voice-answer")
-async def submit_voice_answer(voice_request: VoiceAnswerRequest):
-    try:
-        # Process voice input
-        transcribed_text = await voice_service.process_voice_input(voice_request.audio_data, voice_request.session_id)
-        # Get session data
-        db = await get_db()
-        session_data = await db.interview_sessions.find_one({"session_id": voice_request.session_id})
-        if not session_data:
-            raise HTTPException(status_code=404, detail="Interview session not found")
-
-        # Update session with the transcribed text
-        if "questions" not in session_data:
-            session_data["questions"] = []
-        if session_data["questions"]:
-            session_data["questions"][-1]["answer"] = transcribed_text
-
-        # Track question count
-        question_count = session_data.get("question_count", 1)
-        topic = session_data.get("topic")
-        base_question_data = await fetch_base_question(topic)
-
-        # Interview flow logic
-        if question_count < 4:
-            next_question = await get_next_question(session_data["questions"], topic=session_data["topic"])
-            session_data["questions"].append({"question": next_question, "answer": ""})
-            session_data["question_count"] = question_count + 1
-            await db.interview_sessions.update_one(
-                {"session_id": voice_request.session_id},
-                {"$set": {"questions": session_data["questions"], "question_count": session_data["question_count"]}}
-            )
-            return {
-                "status": "success",
-                "question": next_question,
-                "answer": transcribed_text,
-                "ready_to_code": False,
-                "language": base_question_data.get("language", ""),
-                "code_stub": base_question_data.get("code_stub", ""),
-                "tags": base_question_data.get("tags", [])
-            }
-
-        elif question_count == 4:
-            quality = await check_answer_quality(session_data["questions"], session_data["topic"])
-            if quality == "good":
-                session_data["question_count"] += 1
-                session_data["clarification_mode"] = True
-                await db.interview_sessions.update_one(
-                    {"session_id": voice_request.session_id},
-                    {"$set": {
-                        "question_count": session_data["question_count"],
-                        "clarification_mode": True
-                    }}
-                )
-                return {
-                    "status": "success",
-                    "question": "Alright. You can start coding. If you have any doubts or need clarification regarding the main question, you can ask me.",
-                    "answer": transcribed_text,
-                    "ready_to_code": True,
-                    "clarification": True,
-                    "language": base_question_data.get("language", ""),
-                    "code_stub": base_question_data.get("code_stub", ""),
-                    "tags": base_question_data.get("tags", [])
-                }
-            else:
-                return {
-                    "status": "success",
-                    "question": "Your answers so far seem unclear or incomplete. Please review your responses and try to answer the questions more thoughtfully before proceeding to the coding phase.",
-                    "answer": transcribed_text,
-                    "ready_to_code": False,
-                    "language": base_question_data.get("language", "")
-                }
-
-        else:
-            # Already in coding phase
-            return {
-                "status": "success",
-                "question": "You can continue with coding. If you need clarification, please ask.",
-                "answer": transcribed_text,
-                "ready_to_code": True,
-                "language": base_question_data.get("language", "")
-            }
-
-    except Exception as e:
-        logger.error(f"Error processing voice answer: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-    
  
 @router.post("/analyze-approach")
 async def analyze_approach(request: ApproachAnalysisRequest) -> Dict[str, Any]:
