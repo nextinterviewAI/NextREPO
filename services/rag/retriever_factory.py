@@ -1,16 +1,45 @@
 import os
 import logging
+import asyncio
 from typing import Optional
 from models.schemas import RAGRetriever
 from services.rag.doc_loader import load_docx_files
-from services.rag.vector_store import build_index
+from services.rag.vector_store import build_index, save_index
 
 logger = logging.getLogger(__name__)
 
 # Global retriever instance
-_rag_retriever: Optional[RAGRetriever] = None
+_rag_retriever = None
 
-async def get_rag_retriever(force_rebuild: bool = False) -> RAGRetriever:
+async def initialize_rag_retriever(data_dir: str = "data/docs"):
+    global _rag_retriever
+    
+    if _rag_retriever is not None:
+        return _rag_retriever
+
+    try:
+        # Load documents
+        logger.info(f"Loading documents from {data_dir}")
+        documents = load_docx_files(data_dir)
+        
+        if not documents:
+            raise ValueError("No valid .docx files found")
+        
+        documents = load_docx_files(data_dir)
+    
+        if not documents:
+            raise ValueError(f"No valid documents found in {data_dir}")
+        
+        index, texts = await build_index(documents)
+        _rag_retriever = RAGRetriever(index=index, texts=texts)
+        logger.info(f"RAGRetriever initialized with {len(texts)} document chunks")
+        return _rag_retriever
+
+    except Exception as e:
+        logger.error(f"Error initializing RAGRetriever: {str(e)}")
+        raise
+
+async def get_rag_retriever(force_rebuild: bool = False, data_dir: str = "data/docs") -> RAGRetriever:
     """
     Get or create a RAG retriever instance
     
@@ -68,6 +97,11 @@ async def get_rag_retriever(force_rebuild: bool = False) -> RAGRetriever:
     except Exception as e:
         logger.error(f"Failed to initialize RAG retriever: {str(e)}")
         raise
+
+def get_retriever():
+    if _rag_retriever is None:
+        raise RuntimeError("RAGRetriever not initialized. Call initialize_rag_retriever() first.")
+    return _rag_retriever
 
 def get_retriever_status() -> dict:
     """

@@ -103,20 +103,18 @@ async def startup_event():
         # Initialize RAGRetriever on app startup
         try:
             logger.info("Initializing RAG retriever...")
-            from services.rag.retriever_factory import get_rag_retriever
+            from services.rag.retriever_factory import initialize_rag_retriever
             global rag_retriever
-            rag_retriever = await get_rag_retriever()
+            rag_retriever = await initialize_rag_retriever()
             logger.info("RAGRetriever initialized during startup")
-        except Exception as rag_error:
-            logger.error(f"Error initializing RAGRetriever at startup: {str(rag_error)}")
-            # Don't raise here - let the app start even if RAG fails
-            # RAG endpoints will handle the error gracefully
-        
-        # Log startup completion
+        except Exception as e:
+            logger.warning(f"Failed to initialize RAGRetriever: {str(e)}")
+            
         logger.info("Application startup completed successfully")
         
     except Exception as e:
         error_msg = f"Startup Error: {str(e)}\n{traceback.format_exc()}"
+        logger.warning(f"Failed to initialize RAGRetriever: {str(e)}")
         logger.error(error_msg)
         if IS_LAMBDA:
             raise

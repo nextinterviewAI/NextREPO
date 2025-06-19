@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/rag", tags=["RAG"])
 
 # Global variable to store the retriever
-rag_retriever: Optional[RAGRetriever] = None
+rag_retriever = None
 
 async def initialize_rag_retriever():
     """Initialize the RAG retriever with documents from data directory"""

@@ -15,7 +15,7 @@ MONGO_URI = os.getenv("MONGODB_URI")
 if not MONGO_URI:
     raise ValueError("MONGODB_URI environment variable is not set")
  
-DB_NAME = os.getenv("DB_NAME")
+DB_NAME = os.getenv("DB_NAME", "test")
 if not DB_NAME:
     raise ValueError("DB_NAME environment variable is not set")
  
@@ -90,12 +90,13 @@ async def save_session_data(session_id: str, data: dict):
 async def create_indexes():
     """Create necessary indexes"""
     try:
-        await db.interview_topics.create_index("name", unique=True)
+        await db.interview_topics.drop_index("topic_1")
+        await db.interview_topics.create_index("topic", unique=True)
         await db.interview_sessions.create_index("session_id", unique=True)
     except Exception as e:
         logger.error(f"Error creating indexes: {str(e)}")
         raise
- 
+        
 async def get_available_topics():
     """Get list of available topics"""
     try:
