@@ -1,7 +1,7 @@
 from services.llm.utils import MODEL_NAME, client, retry_with_backoff, safe_strip, parse_json_response, get_fallback_analysis
 from typing import Dict, Any
 import logging
-from services.rag.retriever_factory import _rag_retriever as rag_retriever
+from services.rag.retriever_factory import get_rag_retriever
 import asyncio
 
 logger = logging.getLogger(__name__)
@@ -14,14 +14,12 @@ class ApproachAnalysisService:
     async def _get_context(self, question: str, top_k: int = 2) -> str:
         """Retrieve and format relevant context from RAG system"""
         try:
-            if rag_retriever is None:
+            retriever = await get_rag_retriever()
+            if retriever is None:
                 logger.warning("RAGRetriever not initialized")
                 return ""
-
-            context_chunks = await rag_retriever.retrieve_context(question, top_k=top_k)
-
+            context_chunks = await retriever.retrieve_context(question, top_k=top_k)
             return "\n\n".join(context_chunks)
-
         except Exception as e:
             logger.error(f"Error retrieving context: {str(e)}")
             return ""
