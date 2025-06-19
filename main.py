@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from routes.mock_interview import router as mock_interview_router
 from routes.code_optimization import router as code_optimization_router
 from routes.approach_analysis import router as approach_analysis_router
+from routes.rag import router as rag_router
 from services.db import create_indexes, get_db, check_collections
 import logging
 import asyncio
@@ -108,6 +109,7 @@ async def startup_event():
 app.include_router(mock_interview_router, prefix="/mock-interview")
 app.include_router(code_optimization_router, prefix="/code")
 app.include_router(approach_analysis_router, prefix="/approach")
+app.include_router(rag_router)
 
 
 @app.get("/health")
