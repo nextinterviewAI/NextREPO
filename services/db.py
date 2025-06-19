@@ -37,7 +37,7 @@ async def fetch_base_question(topic: str):
         if not topic_doc:
             raise Exception(f"Topic '{topic}' not found")
         
-        topic_id = str(topic_doc["_id"])
+        topic_id = topic_doc["_id"]
         logger.info(f"Found topic ID: {topic_id}")
 
         # Step 2: Aggregate to get one random mock-available question
@@ -45,19 +45,33 @@ async def fetch_base_question(topic: str):
             {
                 "$match": {
                     "topicId": topic_id,
-                    "isAvailableForMock": True,
+                    "$or": [
+                        {"isAvailableForMock": True},
+                        {"isAvailableForMockInterview": True}
+                    ],
                     "isDeleted": False
                 }
             },
             {"$sample": {"size": 1}}
         ]
 
+        # Log the count of available questions for debugging
+        count = await db.mainquestionbanks.count_documents({
+            "topicId": topic_id,
+            "$or": [
+                {"isAvailableForMock": True},
+                {"isAvailableForMockInterview": True}
+            ],
+            "isDeleted": False
+        })
+        logger.warning(f"Found {count} available questions for topic '{topic}' with topicId {topic_id}")
+
         cursor = db.mainquestionbanks.aggregate(pipeline)
         result = await cursor.to_list(length=1)
 
         if not result:
-            logger.warning(f"No questions found for topic '{topic}'")
-            raise Exception(f"No questions found for topic '{topic}'")
+            logger.warning(f"No questions found for topic '{topic}' (topicId: {topic_id})")
+            raise Exception(f"No questions found for topic '{topic}' (topicId: {topic_id})")
 
         question_doc = result[0]
         logger.info(f"Fetched question: {question_doc.get('question', 'No question text')}")

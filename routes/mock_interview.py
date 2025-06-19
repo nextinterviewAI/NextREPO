@@ -3,10 +3,11 @@ from services.db import get_db, fetch_base_question, save_session_data, get_avai
 from services.llm.interview import get_next_question
 from services.llm.feedback import get_feedback
 from services.llm.clarification import get_clarification
-from services.llm.check_answer_quality import check_answer_quality
+from services.llm.check_answer_quality import check_answer_quality, check_single_answer_quality
 from models.schemas import InterviewInit, AnswerRequest, ClarificationRequest
 import logging
 from datetime import datetime
+from services.rag.retriever_factory import get_rag_retriever
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +32,16 @@ async def init_interview(init_data: InterviewInit):
             }]
         })
         
+        # Retrieve RAG context for the topic
+        retriever = await get_rag_retriever()
+        rag_context = ""
+        if retriever is not None:
+            context_chunks = await retriever.retrieve_context(init_data.topic)
+            rag_context = "\n\n".join(context_chunks)
+        
         # Get first follow-up question
         try:
-            first_follow_up = await get_next_question([], is_base_question=True, topic=init_data.topic)
+            first_follow_up = await get_next_question([], is_base_question=True, topic=init_data.topic, rag_context=rag_context)
         except Exception as e:
             logger.error(f"Error generating follow-up question: {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error generating follow-up question: {str(e)}")
@@ -80,9 +88,31 @@ async def submit_answer(answer_request: AnswerRequest = Body(...)):
             if session_data["questions"]:
                 session_data["questions"][-1]["answer"] = answer
 
-        if question_count < 4 and not clarification:
+            # Validate answer quality before proceeding
+            retriever = await get_rag_retriever()
+            rag_context = ""
+            if retriever is not None:
+                context_chunks = await retriever.retrieve_context(topic)
+                rag_context = "\n\n".join(context_chunks)
+            last_question = session_data["questions"][-1]["question"] if session_data["questions"] else ""
+            answer_quality = await check_single_answer_quality(last_question, answer, topic, rag_context=rag_context)
+            if answer_quality != "good":
+                return {
+                    "question": last_question,
+                    "ready_to_code": False,
+                    "language": base_question_data["language"],
+                    "message": "It seems your answer was unclear or not understood. Please try again or clarify your response."
+                }
+
+        if question_count < 5 and not clarification:
+            # Retrieve RAG context for the topic
+            retriever = await get_rag_retriever()
+            rag_context = ""
+            if retriever is not None:
+                context_chunks = await retriever.retrieve_context(topic)
+                rag_context = "\n\n".join(context_chunks)
             try:
-                next_question = await get_next_question(session_data["questions"], topic=session_data["topic"])
+                next_question = await get_next_question(session_data["questions"], topic=topic, rag_context=rag_context)
                 session_data["questions"].append({"question": next_question, "answer": ""})
                 session_data["question_count"] = question_count + 1
                 await db.interview_sessions.update_one(
@@ -98,7 +128,7 @@ async def submit_answer(answer_request: AnswerRequest = Body(...)):
                 logger.error(f"Error generating next question: {str(e)}", exc_info=True)
                 raise HTTPException(status_code=500, detail=f"Error generating next question: {str(e)}")
 
-        elif question_count == 4 and not clarification:
+        elif question_count == 5 and not clarification:
             quality = await check_answer_quality(session_data["questions"], session_data["topic"])
             if quality == "good":
                 session_data["question_count"] = question_count + 1
@@ -126,7 +156,7 @@ async def submit_answer(answer_request: AnswerRequest = Body(...)):
                     "language": base_question_data["language"]
                 }
 
-        elif question_count > 4 or clarification:
+        elif question_count > 5 or clarification:
             try:
                 current_question = session_data["questions"][0]["question"] if session_data["questions"] else None
                 if not current_question:
