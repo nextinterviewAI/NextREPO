@@ -1,5 +1,3 @@
-# services/llm/check_answer_quality.py
-
 from services.llm.utils import MODEL_NAME, client, retry_with_backoff, safe_strip
 from typing import List, Dict, Any
 import logging

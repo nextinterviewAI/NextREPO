@@ -1,5 +1,3 @@
-# services/llm/utils.py
-
 import openai
 import os
 import logging

@@ -32,6 +32,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Global variable to store RAG retriever
+rag_retriever = None
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     try:
@@ -97,6 +100,18 @@ async def startup_event():
         await check_collections()
         logger.info("Database collections verified")
         
+        # Initialize RAGRetriever on app startup
+        try:
+            logger.info("Initializing RAG retriever...")
+            from services.rag.retriever_factory import get_rag_retriever
+            global rag_retriever
+            rag_retriever = await get_rag_retriever()
+            logger.info("RAGRetriever initialized during startup")
+        except Exception as rag_error:
+            logger.error(f"Error initializing RAGRetriever at startup: {str(rag_error)}")
+            # Don't raise here - let the app start even if RAG fails
+            # RAG endpoints will handle the error gracefully
+        
         # Log startup completion
         logger.info("Application startup completed successfully")
         
@@ -122,9 +137,17 @@ async def health_check():
         db = await get_db()
         await db.command("ping")
         
+        # Check RAG system status
+        try:
+            from services.rag.retriever_factory import get_retriever_status
+            rag_status = get_retriever_status()
+        except Exception as e:
+            rag_status = {"initialized": False, "error": str(e)}
+        
         return {
             "status": "healthy",
             "database": "connected",
+            "rag_system": rag_status,
             "timestamp": time.time()
         }
     except Exception as e:

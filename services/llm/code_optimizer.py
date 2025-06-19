@@ -1,5 +1,3 @@
-# services/llm/code_optimizer.py
-
 from services.llm.utils import MODEL_NAME, client, retry_with_backoff, safe_strip, get_fallback_optimized_code
 from typing import Union
 import logging

@@ -1,5 +1,3 @@
-# services/llm/clarification.py
-
 from services.llm.utils import client, retry_with_backoff, safe_strip, get_fallback_clarification
 from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam
 import logging
