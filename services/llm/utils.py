@@ -6,6 +6,9 @@ from typing import List, Dict, Any, Union, Callable, Awaitable
 from functools import wraps
 import asyncio
 import json
+import tiktoken
+
+TOKEN_LIMIT = 8192
 
 logger = getLogger(__name__)
 
@@ -21,6 +24,13 @@ logger.info("Shared OpenAI client initialized")
 
 # === Model Name ===
 MODEL_NAME = "gpt-4o-mini"
+
+def get_token_count(text: str, model: str = "cl100k_base") -> int:
+    encoding = tiktoken.get_encoding(model)
+    return len(encoding.encode(text))
+
+def is_valid_for_embedding(text: str) -> bool:
+    return get_token_count(text) < TOKEN_LIMIT
 
 # === Retry Logic Wrapper ===
 def retry_with_backoff(func: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:

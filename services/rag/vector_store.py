@@ -9,7 +9,7 @@ from services.rag.embedding import get_embedding
 
 logger = logging.getLogger(__name__)
 
-DIMENSION = 1536  # OpenAI ada-002 embedding dimension
+DIMENSION = 1536  
 INDEX_PATH = os.getenv("FAISS_INDEX_PATH", "/tmp/faiss_index")
 
 async def build_index(documents: List[Dict[str, str]]) -> Tuple[faiss.Index, List[str]]:
@@ -61,3 +61,39 @@ async def build_index(documents: List[Dict[str, str]]) -> Tuple[faiss.Index, Lis
 
     logger.info(f"Index built with {index.ntotal} vectors")
     return index, texts
+
+# services/rag/vector_store.py
+
+def save_index(index: faiss.Index, texts: list, path: str = "/tmp/faiss_index"):
+    """Save FAISS index and texts to disk"""
+    try:
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        # Save FAISS index
+        faiss.write_index(index, f"{path}.faiss")
+
+        # Save document texts
+        with open(f"{path}_texts.pkl", "wb") as f:
+            pickle.dump(texts, f)
+
+        logger.info(f"FAISS index and texts saved to {path}")
+    except Exception as e:
+        logger.error(f"Error saving index: {str(e)}")
+        raise
+
+def load_index(path: str = "/tmp/faiss_index"):
+    """Load FAISS index and texts from disk"""
+    try:
+        if not os.path.exists(f"{path}.faiss") or not os.path.exists(f"{path}_texts.pkl"):
+            raise FileNotFoundError("FAISS index or texts file not found")
+
+        index = faiss.read_index(f"{path}.faiss")
+        with open(f"{path}_texts.pkl", "rb") as f:
+            texts = pickle.load(f)
+
+        logger.info(f"Loaded FAISS index with {index.ntotal} vectors")
+        return index, texts
+    except Exception as e:
+        logger.error(f"Error loading index: {str(e)}")
+        raise
