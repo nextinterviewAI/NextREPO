@@ -32,7 +32,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global variable to store RAG retriever
 rag_retriever = None
 
 @app.middleware("http")
@@ -84,23 +83,19 @@ async def startup_event():
             raise ValueError("OPENAI_API_KEY environment variable is not set")
             
         logger.info("Environment variables validated")
-            
-        # Initialize database connection
+        
         logger.info("Attempting to connect to database...")
         db = await get_db()
         logger.info("Database connection successful")
         
-        # Create indexes if not exists
         logger.info("Creating database indexes...")
         await create_indexes()
         logger.info("Database indexes created successfully")
         
-        # Check collections
         logger.info("Checking database collections...")
         await check_collections()
         logger.info("Database collections verified")
         
-        # Initialize RAGRetriever on app startup
         try:
             logger.info("Initializing RAG retriever...")
             from services.rag.retriever_factory import initialize_rag_retriever
@@ -131,11 +126,9 @@ async def health_check():
     Health check endpoint for monitoring
     """
     try:
-        # Check database connection
         db = await get_db()
         await db.command("ping")
         
-        # Check RAG system status
         try:
             from services.rag.retriever_factory import get_retriever_status
             rag_status = get_retriever_status()

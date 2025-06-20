@@ -9,8 +9,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
  
 load_dotenv()
- 
-# MongoDB configuration
+
 MONGO_URI = os.getenv("MONGODB_URI")
 if not MONGO_URI:
     raise ValueError("MONGODB_URI environment variable is not set")
@@ -19,10 +18,9 @@ DB_NAME = os.getenv("DB_NAME", "test")
 if not DB_NAME:
     raise ValueError("DB_NAME environment variable is not set")
  
-# Initialize MongoDB client
 client = AsyncIOMotorClient(MONGO_URI)
 db = client[DB_NAME]
- 
+
 async def get_db():
     """Get database instance"""
     return db
@@ -32,7 +30,6 @@ async def fetch_base_question(topic: str):
     try:
         logger.info(f"Fetching base question for topic: {topic}")
         
-        # Step 1: Get topic document to find its ID
         topic_doc = await db.interview_topics.find_one({"topic": topic})
         if not topic_doc:
             raise Exception(f"Topic '{topic}' not found")
@@ -40,7 +37,6 @@ async def fetch_base_question(topic: str):
         topic_id = topic_doc["_id"]
         logger.info(f"Found topic ID: {topic_id}")
 
-        # Step 2: Aggregate to get one random mock-available question
         pipeline = [
             {
                 "$match": {
@@ -55,7 +51,6 @@ async def fetch_base_question(topic: str):
             {"$sample": {"size": 1}}
         ]
 
-        # Log the count of available questions for debugging
         count = await db.mainquestionbanks.count_documents({
             "topicId": topic_id,
             "$or": [
@@ -76,7 +71,6 @@ async def fetch_base_question(topic: str):
         question_doc = result[0]
         logger.info(f"Fetched question: {question_doc.get('question', 'No question text')}")
 
-        # Return standardized structure expected by route
         return {
             "question": question_doc.get("question", ""),
             "code_stub": question_doc.get("base_code", ""),
@@ -121,12 +115,10 @@ async def get_available_topics():
         if "interview_topics" not in collections:
             logger.error("interview_topics collection does not exist")
             return []
-           
-        # Get all topics and log their structure
+       
         topics = await db.interview_topics.find({}).to_list(length=None)
         logger.error(f"Raw topics data: {topics}")
        
-        # Extract topics safely
         available_topics = []
         for topic in topics:
             if "topic" in topic:
@@ -147,14 +139,12 @@ async def check_collections():
         collections = await db.list_collection_names()
         logger.info(f"Available collections: {collections}")
 
-        # Check interview_topics collection
         if "interview_topics" in collections:
             topics = await db.interview_topics.find({}).to_list(length=10)
             logger.info(f"Topics in interview_topics collection: {topics}")
         else:
             logger.info("interview_topics collection does not exist")
 
-        # Check mainquestionbanks collection (your new source of questions)
         if "mainquestionbanks" in collections:
             sample = await db.mainquestionbanks.find(
                 {}, 
