@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Body
-from services.llm import generate_optimized_code
+from services.llm import generate_optimized_code, generate_optimized_code_with_summary
 from models.schemas import CodeOptimizationRequest
 from services.rag.retriever_factory import get_rag_retriever
 
@@ -15,13 +15,13 @@ async def optimize_code(request: CodeOptimizationRequest):
             context_chunks = await retriever.retrieve_context(request.question)
             rag_context = "\n\n".join(context_chunks)
         
-        optimized_code = await generate_optimized_code(
+        result = await generate_optimized_code_with_summary(
             question=request.question,
             user_code=request.user_code,
             sample_input=request.sample_input,
             sample_output=request.sample_output,
             rag_context=rag_context
         )
-        return {"optimized_code": optimized_code}
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error optimizing code: {str(e)}")
