@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 import logging
 import random
+from datetime import datetime
  
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -84,23 +85,11 @@ async def fetch_base_question(topic: str):
         logger.error(f"Error fetching base question: {str(e)}", exc_info=True)
         raise
     
-async def save_session_data(session_id: str, data: dict):
-    """Save interview session data"""
-    try:
-        await db.interview_sessions.insert_one({
-            "session_id": session_id,
-            **data
-        })
-    except Exception as e:
-        logger.error(f"Error saving session data: {str(e)}")
-        raise
- 
 async def create_indexes():
     """Create necessary indexes"""
     try:
         await db.interview_topics.drop_index("topic_1")
         await db.interview_topics.create_index("topic", unique=True)
-        await db.interview_sessions.create_index("session_id", unique=True)
     except Exception as e:
         logger.error(f"Error creating indexes: {str(e)}")
         raise
@@ -157,4 +146,95 @@ async def check_collections():
     except Exception as e:
         logger.error(f"Error checking collections: {str(e)}", exc_info=True)
         raise
+
+async def validate_user_id(user_id: str) -> bool:
+    """Check if a user with the given user_id exists in the users collection."""
+    db = await get_db()
+    user = await db.users.find_one({"_id": user_id})
+    return user is not None
+
+async def save_user_ai_interaction(user_id: str, endpoint: str, input_data: dict, ai_response: dict, meta: dict = None):
+    db = await get_db()
+    doc = {
+        "user_id": user_id,
+        "timestamp": datetime.utcnow(),
+        "endpoint": endpoint,
+        "input": input_data,
+        "ai_response": ai_response
+    }
+    if meta:
+        doc["meta"] = meta
+    await db.user_ai_interactions.insert_one(doc)
+
+async def fetch_interactions_for_session(user_id: str, session_id: str):
+    db = await get_db()
+    interactions = await db.user_ai_interactions.find({
+        "user_id": user_id,
+        "input.session_id": session_id
+    }).sort("timestamp", 1).to_list(length=None)
+    return interactions
+
+async def fetch_user_history(user_id: str, limit: int = 50):
+    db = await get_db()
+    interactions = await db.user_ai_interactions.find({
+        "user_id": user_id
+    }).sort("timestamp", -1).limit(limit).to_list(length=limit)
+    return interactions
+
+# Advanced session reconstruction
+
+def reconstruct_session_state(interactions):
+    """
+    Given a list of interactions (sorted by timestamp), reconstruct the session state:
+    - questions: list of {question, answer}
+    - clarifications: list of {clarification, response}
+    - question_count, topic, etc.
+    """
+    session_data = {"questions": [], "clarifications": [], "question_count": 1, "topic": None}
+    for inter in interactions:
+        inp = inter.get("input", {})
+        resp = inter.get("ai_response", {})
+        meta = inter.get("meta", {})
+        if meta.get("step") == "init":
+            session_data["topic"] = inp.get("topic")
+            session_data["questions"].append({"question": resp.get("base_question"), "answer": ""})
+            session_data["question_count"] = 1
+        elif meta.get("step") == "answer":
+            if "clarification" in meta and meta["clarification"]:
+                session_data["clarifications"].append({"clarification": inp.get("answer"), "response": resp.get("clarification")})
+            else:
+                if session_data["questions"]:
+                    session_data["questions"][-1]["answer"] = inp.get("answer")
+                if "question" in resp:
+                    session_data["questions"].append({"question": resp["question"], "answer": ""})
+                session_data["question_count"] = session_data.get("question_count", 1) + 1
+    return session_data
+
+async def fetch_user_session_summaries(user_id: str, limit: int = 20):
+    db = await get_db()
+    # Aggregate sessions by session_id
+    pipeline = [
+        {"$match": {"user_id": user_id}},
+        {"$group": {
+            "_id": "$input.session_id",
+            "first": {"$first": "$timestamp"},
+            "last": {"$last": "$timestamp"},
+            "topic": {"$first": "$input.topic"},
+            "count": {"$sum": 1}
+        }},
+        {"$sort": {"last": -1}},
+        {"$limit": limit}
+    ]
+    summaries = await db.user_ai_interactions.aggregate(pipeline).to_list(length=limit)
+    # Format output
+    return [
+        {
+            "session_id": s["_id"],
+            "topic": s.get("topic"),
+            "start_time": s.get("first"),
+            "end_time": s.get("last"),
+            "interaction_count": s.get("count")
+        }
+        for s in summaries if s["_id"]
+    ]
  

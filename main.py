@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 import os
 import traceback
 import sys
+import jwt
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,14 +35,24 @@ app.add_middleware(
 
 rag_retriever = None
 
+def extract_clerk_user_id(request: Request):
+    token = request.headers.get('authorization', '').replace('Bearer ', '')
+    try:
+        payload = jwt.decode(token, 'your_secret_key', algorithms=["HS256"])
+        clerk_user_id = payload.get("clerkUserId") or payload.get("sub")
+        return clerk_user_id
+    except Exception as e:
+        logger.warning(f"Could not decode JWT or extract clerkUserId: {e}")
+        return None
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     try:
         logger.info(f"Incoming request - Path: {request.url.path}, Method: {request.method}")
-        
+        user_id = extract_clerk_user_id(request)
+        logger.info(f"Extracted clerkUserId: {user_id}")
         env_vars = {k: v for k, v in os.environ.items() if k in ['MONGODB_URI', 'DB_NAME']}
         logger.info(f"Environment variables present: {list(env_vars.keys())}")
-        
         response = await call_next(request)
         if response.status_code >= 400:
             logger.error(f"Error Response - Status: {response.status_code}, Path: {request.url.path}, Method: {request.method}")

@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 class InterviewInit(BaseModel):
     topic: str
     user_name: str
+    user_id: str
 
 class InterviewResponse(BaseModel):
     question: str
@@ -18,6 +19,7 @@ class AnswerRequest(BaseModel):
     session_id: str
     answer: str
     clarification: bool = False
+    user_id: str
 
 class ClarificationRequest(BaseModel):
     session_id: str
@@ -26,12 +28,14 @@ class ClarificationRequest(BaseModel):
 class ApproachAnalysisRequest(BaseModel):
     question: str
     user_answer: str
+    user_id: str
 
 class CodeOptimizationRequest(BaseModel):
     question: str
     user_code: str
     sample_input: str
     sample_output: str
+    user_id: str
 
 class FeedbackResponse(BaseModel):
     feedback: str
