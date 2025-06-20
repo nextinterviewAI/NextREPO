@@ -34,7 +34,7 @@ class RAGRetriever:
                 query_vector=query_embedding,
                 limit=top_k
             )
-            results = [hit.payload["text"] for hit in search_result if "text" in hit.payload]
+            results = [hit.payload["text"] for hit in search_result if hit.payload and "text" in hit.payload]
             logger.info(f"Retrieved {len(results)} context chunks for query: {query[:100]}...")
             return results
 

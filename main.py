@@ -98,9 +98,9 @@ async def startup_event():
         
         try:
             logger.info("Initializing RAG retriever...")
-            from services.rag.retriever_factory import initialize_rag_retriever
+            from services.rag.retriever_factory import get_rag_retriever
             global rag_retriever
-            rag_retriever = await initialize_rag_retriever()
+            rag_retriever = await get_rag_retriever()
             logger.info("RAGRetriever initialized during startup")
         except Exception as e:
             logger.warning(f"Failed to initialize RAGRetriever: {str(e)}")

@@ -15,13 +15,15 @@ async def get_feedback(conversation: List[Dict[str, Any]], user_name: str) -> di
         ])
 
         prompt = f"""
-Based on the following interview conversation with {user_name}, provide comprehensive feedback in JSON format.
+Based on the following interview conversation with {user_name}, provide comprehensive and STRICT feedback in JSON format.
+
+Be honest and critical. If any answers are missing, incomplete, or appear to be gibberish, explicitly call this out in the summary, points to address, and areas for improvement. Do NOT give positive feedback for unclear, irrelevant, or missing answers. Penalize low-quality or insufficient responses. Only praise clear, correct, and complete answers.
 
 Include:
-- Summary (2-3 lines)
-- Positive Points (3 specific strengths)
-- Points to Address (3 unclear parts)
-- Areas for Improvement (3 broader areas)
+- Summary (2-3 lines, must mention if any answers were missing, unclear, or gibberish)
+- Positive Points (up to 3 specific strengths, only if present)
+- Points to Address (at least 3 unclear, missing, or weak parts)
+- Areas for Improvement (at least 3 broader areas, especially if answers were incomplete or low quality)
 
 Conversation:
 {formatted}

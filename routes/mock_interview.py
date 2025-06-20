@@ -98,10 +98,9 @@ async def submit_answer(answer_request: AnswerRequest = Body(...)):
             answer_quality = await check_single_answer_quality(last_question, answer, topic, rag_context=rag_context)
             if answer_quality != "good":
                 return {
-                    "question": last_question,
+                    "question": f"{last_question}\n\nNote: It seems your answer was unclear or not understood. Please try again or clarify your response.",
                     "ready_to_code": False,
-                    "language": base_question_data["language"],
-                    "message": "It seems your answer was unclear or not understood. Please try again or clarify your response."
+                    "language": base_question_data["language"]
                 }
 
         if question_count < 5 and not clarification:
