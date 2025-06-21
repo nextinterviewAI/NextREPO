@@ -24,8 +24,7 @@ async def optimize_code(request: CodeOptimizationRequest):
             user_code=request.user_code,
             sample_input=request.sample_input,
             sample_output=request.sample_output,
-            rag_context=rag_context,
-            user_id=request.user_id
+            rag_context=rag_context
         )
         # Save interaction (do not block response)
         try:

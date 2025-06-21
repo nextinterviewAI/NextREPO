@@ -14,16 +14,28 @@ async def get_feedback(conversation: List[Dict[str, Any]], user_name: str) -> di
             for turn in conversation
         ])
 
+        name_reference = f"{user_name}" if user_name else "the candidate"
         prompt = f"""
-Based on the following interview conversation with {user_name}, provide comprehensive and STRICT feedback in JSON format.
+Based on the following interview conversation with {name_reference}, provide intelligent, contextual feedback in JSON format.
 
-Be honest and critical. If any answers are missing, incomplete, or appear to be gibberish, explicitly call this out in the summary, points to address, and areas for improvement. Do NOT give positive feedback for unclear, irrelevant, or missing answers. Penalize low-quality or insufficient responses. Only praise clear, correct, and complete answers.
+Be honest and critical while being constructive. If any answers are missing, incomplete, or appear to be gibberish, explicitly call this out. Do NOT give positive feedback for unclear, irrelevant, or missing answers. Only praise clear, correct, and complete answers.
+
+Provide intelligent, contextual feedback that:
+1. Analyzes the specific interview topic and questions asked
+2. Gives feedback directly related to the actual conversation content
+3. Suggests improvements specific to the interview context, not generic advice
+4. Feels like a knowledgeable mentor giving specific, actionable advice
+5. Avoids repetitive name usage and templated language
+6. Connects feedback directly to the user's specific answers and the interview flow
+7. Considers the progression of questions and how answers build upon each other
+
+The feedback should feel like a real conversation with an expert who understands the interview context and is giving specific, relevant guidance.
 
 Include:
-- Summary (2-3 lines, must mention if any answers were missing, unclear, or gibberish)
-- Positive Points (up to 3 specific strengths, only if present)
-- Points to Address (at least 3 unclear, missing, or weak parts)
-- Areas for Improvement (at least 3 broader areas, especially if answers were incomplete or low quality)
+- Summary (2-3 lines analyzing the overall interview performance in context)
+- Positive Points (specific strengths demonstrated in this interview, if any)
+- Points to Address (specific areas from this interview that need improvement)
+- Areas for Improvement (broader areas relevant to this interview topic)
 
 Conversation:
 {formatted}
@@ -40,7 +52,7 @@ Return only valid JSON with structure:
         response = await client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
-                {"role": "system", "content": f"You are an expert interviewer providing detailed feedback for {user_name}"},
+                {"role": "system", "content": f"You are an expert interviewer providing intelligent, contextual feedback for {name_reference}. Focus on specific insights related to the interview conversation, avoiding generic or templated responses."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
