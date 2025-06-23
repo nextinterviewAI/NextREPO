@@ -196,6 +196,12 @@ async def get_interview_feedback(session_id: str):
             raise HTTPException(status_code=404, detail="Interview session not found")
         
         session_data = session["meta"]["session_data"]
+
+        user_name = await get_user_name_from_id(str(session["user_id"]))
+        if not user_name:
+            logger.warning(f"User name not found for user_id: {session['user_id']}, using default")
+            user_name = "User"
+        session_data["user_name"] = user_name
         
         # Check if feedback already exists
         if session_data.get("feedback"):

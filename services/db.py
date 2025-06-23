@@ -760,8 +760,8 @@ async def get_user_name_from_id(user_id: str) -> str:
             user = await db.users.find_one({"_id": object_id})
         except:
             user = await db.users.find_one({"_id": user_id})
-        if user and "name" in user:
-            return user["name"]
+        if user and "user_name" in user:
+            return user["user_name"]
         return ""
     except Exception:
         return ""

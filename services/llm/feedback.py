@@ -18,6 +18,8 @@ async def get_feedback(conversation: List[Dict[str, Any]], user_name: str) -> di
         prompt = f"""
 Based on the following interview conversation with {name_reference}, provide intelligent, contextual feedback in JSON format.
 
+When writing the feedback, naturally refer to the candidate by their name (“{user_name}”) where appropriate (e.g., in the summary or advice), but do not include the name as a separate field in the JSON.
+
 Be honest and critical while being constructive. If any answers are missing, incomplete, or appear to be gibberish, explicitly call this out. Do NOT give positive feedback for unclear, irrelevant, or missing answers. Only praise clear, correct, and complete answers.
 
 Provide intelligent, contextual feedback that:
