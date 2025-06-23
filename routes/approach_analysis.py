@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from services.approach_analysis import ApproachAnalysisService
 from models.schemas import ApproachAnalysisRequest
 from services.db import validate_user_id, save_user_ai_interaction, get_personalized_context, get_user_name_from_history
+from services.llm.utils import check_question_answered_by_id
 
 router = APIRouter(prefix="/approach", tags=["Approach Analysis"])
 
@@ -19,19 +20,29 @@ async def analyze_approach(request: ApproachAnalysisRequest):
         # Get user name from their history
         user_name = await get_user_name_from_history(request.user_id)
         
+        # --- Progress API check ---
+        progress_data = None
+        if getattr(request, "question_id", None):
+            progress_data = await check_question_answered_by_id(request.user_id, request.question_id)
+        
         # Get personalized context based on user's previous interactions
         personalized_context = await get_personalized_context(request.user_id, user_name=user_name)
         
+        previous_attempt = None
+        if progress_data and progress_data.get("success"):
+            previous_attempt = {
+                "answer": progress_data["data"].get("answer", ""),
+                "result": progress_data["data"].get("finalResult", None),
+                "output": progress_data["data"].get("output", "")
+            }
+        personalized_guidance = personalized_context["personalized_guidance"] if personalized_context["personalized_guidance"] else None
         result = await analysis_service.analyze_approach(
             question=request.question,
             user_answer=request.user_answer,
-            user_name=user_name
+            user_name=user_name,
+            previous_attempt=previous_attempt,
+            personalized_guidance=personalized_guidance
         )
-        
-        # Add personalized insights to the feedback field only (as per API documentation)
-        if personalized_context["personalized_guidance"]:
-            if "feedback" in result:
-                result["feedback"] += f"\n\nPersonalized Guidance: {personalized_context['personalized_guidance']}"
         
         # Remove any fields not documented in the API specification
         # Keep only: feedback, strengths, areas_for_improvement, score

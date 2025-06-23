@@ -25,10 +25,17 @@ class ApproachAnalysisService:
             return ""
 
     @retry_with_backoff
-    async def analyze_approach(self, question: str, user_answer: str, user_name: str = None) -> Dict[str, Any]:
+    async def analyze_approach(self, question: str, user_answer: str, user_name: str = None, previous_attempt: dict = None, personalized_guidance: str = None) -> Dict[str, Any]:
         try:
             # Get relevant context from RAG
             context = await self._get_context(question)
+
+            # Build extra context for previous attempt and personalized guidance
+            extra_context = ""
+            if previous_attempt:
+                extra_context += f"The candidate previously attempted this question. Their answer was: {previous_attempt.get('answer', '')}. The result was: {previous_attempt.get('result', '')}. The output was: {previous_attempt.get('output', '')}. Please naturally incorporate this information into your feedback, comparing the current and previous attempts if relevant.\n"
+            if personalized_guidance:
+                extra_context += f"The candidate has the following personalized guidance based on their past sessions: {personalized_guidance}. Please naturally incorporate this advice into your feedback, without explicitly labeling it as 'Personalized Guidance'.\n"
 
             # Build final prompt with or without context
             name_reference = f"{user_name}" if user_name else "the candidate"
@@ -40,6 +47,8 @@ Your task is to evaluate a candidate's written approach to a data science interv
 The goal is to simulate the feedback they'd get from a top-tier interviewer. Your feedback should reflect how they would be judged in a real technical interview.
 
 ---
+
+{extra_context}
 
 Your Evaluation Framework:
 

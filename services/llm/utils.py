@@ -8,6 +8,7 @@ import asyncio
 import json
 import tiktoken
 from dotenv import load_dotenv
+import httpx
 load_dotenv()
 
 TOKEN_LIMIT = 8192
@@ -26,6 +27,8 @@ logger.info("Shared OpenAI client initialized")
 
 # === Model Name ===
 MODEL_NAME = "gpt-4o-mini"
+
+PROGRESS_API_BASE_URL = os.getenv("PROGRESS_API_BASE_URL")
 
 def get_token_count(text: str, model: str = "cl100k_base") -> int:
     encoding = tiktoken.get_encoding(model)
@@ -104,3 +107,15 @@ def get_fallback_analysis() -> dict:
         "areas_for_improvement": ["Could not analyze"],
         "score": 0
     }
+
+async def check_question_answered_by_id(user_id: str, question_bank_id: str) -> dict:
+    url = f"{PROGRESS_API_BASE_URL.rstrip('/')}/mainQuestionBankProgress/checkQuestionAnsweredbyId"
+    payload = {"userId": user_id, "questionBankId": question_bank_id}
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload, timeout=10)
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        logger.error(f"Progress API call failed: {e}")
+        return {"success": False, "error": str(e)}

@@ -7,7 +7,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 @retry_with_backoff
-async def get_feedback(conversation: List[Dict[str, Any]], user_name: str) -> dict:
+async def get_feedback(conversation: List[Dict[str, Any]], user_name: str, previous_attempt: dict = None, personalized_guidance: str = None) -> dict:
     try:
         formatted = "\n".join([
             f"Interviewer: {turn.get('question', '')}\nCandidate: {turn.get('answer', '')}"
@@ -15,9 +15,16 @@ async def get_feedback(conversation: List[Dict[str, Any]], user_name: str) -> di
         ])
 
         name_reference = f"{user_name}" if user_name else "the candidate"
+        extra_context = ""
+        if previous_attempt:
+            extra_context += f"The candidate previously attempted this question. Their answer was: {previous_attempt.get('answer', '')}. The result was: {previous_attempt.get('result', '')}. The output was: {previous_attempt.get('output', '')}. Please naturally incorporate this information into your feedback, comparing the current and previous attempts if relevant.\n"
+        if personalized_guidance:
+            extra_context += f"The candidate has the following personalized guidance based on their past sessions: {personalized_guidance}. Please naturally incorporate this advice into your feedback, without explicitly labeling it as 'Personalized Guidance'.\n"
+
         prompt = f"""
 Based on the following interview conversation with {name_reference}, provide intelligent, contextual feedback in JSON format.
 
+{extra_context}
 When writing the feedback, naturally refer to the candidate by their name (“{user_name}”) where appropriate (e.g., in the summary or advice), but do not include the name as a separate field in the JSON.
 
 Be honest and critical while being constructive. If any answers are missing, incomplete, or appear to be gibberish, explicitly call this out. Do NOT give positive feedback for unclear, irrelevant, or missing answers. Only praise clear, correct, and complete answers.

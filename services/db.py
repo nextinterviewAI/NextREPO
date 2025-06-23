@@ -74,6 +74,7 @@ async def fetch_base_question(topic: str):
         logger.info(f"Fetched question: {question_doc.get('question', 'No question text')}")
 
         return {
+            "_id": str(question_doc.get("_id")),
             "question": question_doc.get("question", ""),
             "code_stub": question_doc.get("base_code", ""),
             "language": question_doc.get("programming_language", ""),
@@ -306,7 +307,7 @@ async def fetch_user_session_summaries(user_id: str, limit: int = 20):
         for s in summaries if s["_id"]
     ]
 
-async def create_interview_session(user_id: str, session_id: str, topic: str, user_name: str, base_question_data: dict, first_follow_up: str):
+async def create_interview_session(user_id: str, session_id: str, topic: str, user_name: str, base_question_data: dict, first_follow_up: str, base_question_id=None):
     """Create a new interview session document in user_ai_interactions collection"""
     try:
         db = await get_db()
@@ -346,6 +347,7 @@ async def create_interview_session(user_id: str, session_id: str, topic: str, us
                     "user_name": user_name,
                     "status": "in_progress",
                     "current_phase": "questioning",
+                    "base_question_id": base_question_id,
                     "total_questions": 1,
                     "questions": [
                         {
