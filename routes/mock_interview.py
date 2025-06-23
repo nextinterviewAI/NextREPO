@@ -256,7 +256,8 @@ async def get_interview_feedback(session_id: str):
             conversation,
             session_data["user_name"],
             previous_attempt=None,
-            personalized_guidance=personalized_context["personalized_guidance"] if personalized_context["personalized_guidance"] else None
+            personalized_guidance=personalized_context["personalized_guidance"] if personalized_context["personalized_guidance"] else None,
+            user_patterns=personalized_context["user_patterns"] if "user_patterns" in personalized_context else None
         )
         
         # If progress API says already answered, add info to feedback
@@ -267,18 +268,6 @@ async def get_interview_feedback(session_id: str):
                 "result": progress_data["data"].get("finalResult", None),
                 "output": progress_data["data"].get("output", "")
             }
-        
-        # Add personalized insights to feedback
-        if personalized_context["personalized_guidance"]:
-            if "summary" in feedback_data:
-                # Blend the guidance naturally into the summary
-                feedback_data["summary"] += (
-                    f"\n\nGiven your experience with SQL Modelling, you may find it helpful to: {personalized_context['personalized_guidance']}"
-                )
-            else:
-                feedback_data["summary"] = (
-                    f"Given your experience with SQL Modelling, you may find it helpful to: {personalized_context['personalized_guidance']}"
-                )
         
         # Create full feedback data for database storage (includes user patterns)
         full_feedback_data = feedback_data.copy()

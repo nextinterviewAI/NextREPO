@@ -7,7 +7,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 @retry_with_backoff
-async def get_feedback(conversation: List[Dict[str, Any]], user_name: str, previous_attempt: dict = None, personalized_guidance: str = None) -> dict:
+async def get_feedback(conversation: List[Dict[str, Any]], user_name: str, previous_attempt: dict = None, personalized_guidance: str = None, user_patterns: Any = None) -> dict:
     try:
         formatted = "\n".join([
             f"Interviewer: {turn.get('question', '')}\nCandidate: {turn.get('answer', '')}"
@@ -20,6 +20,18 @@ async def get_feedback(conversation: List[Dict[str, Any]], user_name: str, previ
             extra_context += f"The candidate previously attempted this question. Their answer was: {previous_attempt.get('answer', '')}. The result was: {previous_attempt.get('result', '')}. The output was: {previous_attempt.get('output', '')}. Please naturally incorporate this information into your feedback, comparing the current and previous attempts if relevant.\n"
         if personalized_guidance:
             extra_context += f"The candidate has the following personalized guidance based on their past sessions: {personalized_guidance}. Please naturally incorporate this advice into your feedback, without explicitly labeling it as 'Personalized Guidance'.\n"
+        if user_patterns:
+            extra_context += f"The candidate has demonstrated the following answer patterns or tendencies in previous interviews: {user_patterns}. Please use this information to provide more personalized, contextual feedback.\n"
+
+        # Pre-check for gibberish or empty answers
+        all_answers = [turn.get('answer', '').strip() for turn in conversation]
+        if all(not ans or len(ans.split()) < 3 for ans in all_answers):
+            return {
+                "summary": f"{user_name}, your responses were unclear, incomplete, or did not address the questions. Please review the basics and try to provide more relevant, structured answers.",
+                "positive_points": [],
+                "points_to_address": ["Most answers were missing, irrelevant, or nonsensical."],
+                "areas_for_improvement": ["Focus on understanding the question and providing clear, relevant responses."]
+            }
 
         prompt = f"""
 Based on the following interview conversation with {name_reference}, provide intelligent, contextual feedback in JSON format.
@@ -27,7 +39,7 @@ Based on the following interview conversation with {name_reference}, provide int
 {extra_context}
 When writing the feedback, naturally refer to the candidate by their name (“{user_name}”) where appropriate (e.g., in the summary or advice), but do not include the name as a separate field in the JSON.
 
-Be honest, direct, and critical while being constructive. If any answers are missing, incomplete, irrelevant, or appear to be gibberish or nonsensical, explicitly call this out in the feedback. Do NOT give positive feedback or mention strengths unless they are clearly demonstrated in the answers. If the candidate's responses are poor, unclear, or off-topic, do not sugarcoat or provide generic praise—be specific about what was lacking.
+Be honest, direct, and critical while being constructive. If any answers are missing, incomplete, irrelevant, or appear to be gibberish or nonsensical, explicitly state this in the summary and do not list any positive points or strengths. Leave the positive_points array empty in such cases. Do NOT give positive feedback or mention strengths unless they are clearly demonstrated in the answers. If the candidate's responses are poor, unclear, or off-topic, do not sugarcoat or provide generic praise—be specific about what was lacking.
 
 Provide intelligent, contextual feedback that:
 1. Analyzes the specific interview topic and questions asked
