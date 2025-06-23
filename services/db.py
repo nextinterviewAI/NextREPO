@@ -685,40 +685,45 @@ async def get_personalized_context(user_id: str, current_topic: str = None, user
         
         # Generate intelligent, contextual guidance based on patterns
         guidance_parts = []
-        
+
         # Use user's name naturally in personalized messages if available
         name_reference = f"{user_name}" if user_name else "You"
-        
-        # Provide topic-specific guidance if available
-        if current_topic:
-            if current_topic in patterns.get("topics_attempted", []):
-                guidance_parts.append(f"Since you've worked on {current_topic} before, leverage that experience to refine your approach this time.")
+
+        # Summarize user progress and trends
+        if patterns.get("average_score") is not None:
+            avg = patterns["average_score"]
+            if avg < 6:
+                guidance_parts.append(f"{name_reference}, your average performance suggests you may benefit from slowing down and structuring your answers more carefully. Consider reviewing foundational concepts and practicing with mock questions.")
+            elif avg > 8:
+                guidance_parts.append(f"{name_reference}, your answers are consistently strong. Challenge yourself with more advanced problems to push your skills further.")
             else:
-                guidance_parts.append(f"This is your first time with {current_topic} - focus on understanding the core concepts and building a solid foundation.")
-        
-        # Provide intelligent performance-based guidance
-        if patterns.get("average_score"):
-            if patterns["average_score"] < 6:
-                guidance_parts.append("Consider taking a bit more time to think through answers thoroughly - this often leads to more comprehensive responses.")
-            elif patterns["average_score"] > 8:
-                guidance_parts.append("You're performing well! Try to challenge yourself with more complex scenarios to push your skills further.")
-        
-        # Provide specific improvement areas if available
+                guidance_parts.append(f"{name_reference}, your performance is steady. Focus on addressing specific weak spots to reach the next level.")
+
+        # Highlight recurring weaknesses (pattern-based, not just topic-based)
         if patterns.get("common_weaknesses"):
             weaknesses = ', '.join(patterns['common_weaknesses'][:2])
-            guidance_parts.append(f"Based on your previous sessions, pay extra attention to: {weaknesses}")
-        
-        # Acknowledge strengths naturally
+            if weaknesses:
+                guidance_parts.append(f"You often struggle with: {weaknesses}. Targeted practice in these areas could help.")
+
+        # Highlight recurring strengths
         if patterns.get("strengths"):
             strengths = ', '.join(patterns['strengths'][:2])
-            guidance_parts.append(f"Your strong areas include: {strengths} - build on these in your responses.")
-        
+            if strengths:
+                guidance_parts.append(f"Your strengths include: {strengths}. Keep leveraging these in your answers.")
+
         # Session completion guidance
-        if patterns.get("session_completion_rate") < 0.5:
-            guidance_parts.append("Completing more interview sessions would help build consistency in your approach and confidence.")
-        
+        scr = patterns.get("session_completion_rate")
+        if scr is not None and scr < 0.5:
+            guidance_parts.append("Completing more interview sessions would help build consistency and confidence.")
+
+        # Add topic-specific note if relevant
+        if current_topic:
+            if current_topic in patterns.get("topics_attempted", []):
+                guidance_parts.append(f"You have attempted {current_topic} before. Reflect on past mistakes and improvements in this area.")
+            else:
+                guidance_parts.append(f"This is your first time with {current_topic}. Focus on understanding the core concepts and building a solid foundation.")
+
         personalized_context["personalized_guidance"] = " ".join(guidance_parts)
-        
         return personalized_context
     except Exception as e:
         logger.error(f"Error getting personalized context: {str(e)}", exc_info=True)
@@ -767,4 +772,3 @@ async def get_user_name_from_id(user_id: str) -> str:
         return ""
     except Exception:
         return ""
- 

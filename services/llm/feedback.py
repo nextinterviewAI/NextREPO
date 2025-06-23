@@ -27,7 +27,7 @@ Based on the following interview conversation with {name_reference}, provide int
 {extra_context}
 When writing the feedback, naturally refer to the candidate by their name (“{user_name}”) where appropriate (e.g., in the summary or advice), but do not include the name as a separate field in the JSON.
 
-Be honest and critical while being constructive. If any answers are missing, incomplete, or appear to be gibberish, explicitly call this out. Do NOT give positive feedback for unclear, irrelevant, or missing answers. Only praise clear, correct, and complete answers.
+Be honest, direct, and critical while being constructive. If any answers are missing, incomplete, irrelevant, or appear to be gibberish or nonsensical, explicitly call this out in the feedback. Do NOT give positive feedback or mention strengths unless they are clearly demonstrated in the answers. If the candidate's responses are poor, unclear, or off-topic, do not sugarcoat or provide generic praise—be specific about what was lacking.
 
 Provide intelligent, contextual feedback that:
 1. Analyzes the specific interview topic and questions asked

@@ -14,7 +14,7 @@ import logging
 from datetime import datetime
 from services.rag.retriever_factory import get_rag_retriever
 from bson import ObjectId
-from services.llm.utils import check_question_answered_by_id
+from services.llm.utils import check_question_answered_by_id, generate_clarification_feedback
 
 logger = logging.getLogger(__name__)
 
@@ -134,8 +134,12 @@ async def submit_answer(answer_request: AnswerRequest = Body(...)):
         )
 
         if quality == "bad":
+            feedback_message = await generate_clarification_feedback(
+                last_answered_question["question"],
+                last_answered_question.get("answer", "")
+            )
             return {
-                "question": f"{last_answered_question['question']}\n\nYour answer seems unclear or irrelevant. Could you please try again?",
+                "question": feedback_message,
                 "ready_to_code": False,
                 "language": session["ai_response"]["language"]
             }
@@ -267,9 +271,14 @@ async def get_interview_feedback(session_id: str):
         # Add personalized insights to feedback
         if personalized_context["personalized_guidance"]:
             if "summary" in feedback_data:
-                feedback_data["summary"] += f"\n\nPersonalized Guidance: {personalized_context['personalized_guidance']}"
+                # Blend the guidance naturally into the summary
+                feedback_data["summary"] += (
+                    f"\n\nGiven your experience with SQL Modelling, you may find it helpful to: {personalized_context['personalized_guidance']}"
+                )
             else:
-                feedback_data["personalized_guidance"] = personalized_context["personalized_guidance"]
+                feedback_data["summary"] = (
+                    f"Given your experience with SQL Modelling, you may find it helpful to: {personalized_context['personalized_guidance']}"
+                )
         
         # Create full feedback data for database storage (includes user patterns)
         full_feedback_data = feedback_data.copy()
