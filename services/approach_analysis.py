@@ -97,6 +97,17 @@ Generate the 6 sections. Do not explain them. Keep it sharp, honest, and profess
 
 Context:
 {context}
+
+---
+
+Return ONLY valid JSON in the following format:
+{{
+    "feedback": "...",
+    "strengths": [...],
+    "areas_for_improvement": [...],
+    "score": number
+}}
+DO NOT return markdown, explanations, or any text outside the JSON object.
 """
 
             response = await self.client.chat.completions.create(
