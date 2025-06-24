@@ -68,12 +68,12 @@ class ApproachAnalysisService:
                     if avg_length > 0:
                         extra_context += f"- Average response length: {avg_length:.0f} words\n"
                 
-                if personalized_guidance:
-                    # Clean up the personalized guidance to be more concise
-                    guidance = personalized_guidance.replace("You often struggle with:", "Areas for improvement:").replace("Your strengths include:", "Strengths:").replace("Keep leveraging these in your answers.", "")
-                    extra_context += f"- Personalized guidance: {guidance}\n"
-                
-                extra_context += "IMPORTANT: Reference these patterns in your feedback. Connect current performance to past trends. Be specific about how they're improving or repeating patterns. Use the performance trend and topic-specific data to provide targeted advice.\n\n"
+            if personalized_guidance:
+                # Clean up the personalized guidance to be more concise
+                guidance = personalized_guidance.replace("You often struggle with:", "Areas for improvement:").replace("Your strengths include:", "Strengths:").replace("Keep leveraging these in your answers.", "")
+                extra_context += f"- Personalized guidance: {guidance}\n"
+
+            extra_context += "IMPORTANT: Reference these patterns in your feedback. Connect current performance to past trends. Be specific about how they're improving or repeating patterns. Use the performance trend and topic-specific data to provide targeted advice.\n\n"
 
             # Build final prompt with or without context
             name_reference = f"{user_name}" if user_name else "the candidate"

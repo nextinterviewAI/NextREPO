@@ -53,7 +53,7 @@ async def create_indexes():
         await db.users.create_index([("_id", 1)])
         
         # Create indexes for interview_topics collection
-        await db.interview_topics.create_index([("topic", 1)])
+        await db.interview_topics.create_index([("topic", 1)], unique=True)
         
         # Create indexes for mainquestionbanks collection
         await db.mainquestionbanks.create_index([("topicId", 1)])
