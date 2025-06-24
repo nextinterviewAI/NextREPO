@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Body
 from services.approach_analysis import ApproachAnalysisService
 from models.schemas import ApproachAnalysisRequest
-from services.db import validate_user_id, save_user_ai_interaction, get_personalized_context, get_user_name_from_history
+from services.db import validate_user_id, save_user_ai_interaction, get_personalized_context, get_user_name_from_history, get_enhanced_personalized_context
 from services.llm.utils import check_question_answered_by_id
+import logging
 
 router = APIRouter(prefix="/approach", tags=["Approach Analysis"])
 
@@ -25,8 +26,17 @@ async def analyze_approach(request: ApproachAnalysisRequest):
         if getattr(request, "question_id", None):
             progress_data = await check_question_answered_by_id(request.user_id, request.question_id)
         
-        # Get personalized context based on user's previous interactions
-        personalized_context = await get_personalized_context(request.user_id, user_name=user_name)
+        # Get enhanced personalized context based on user's previous interactions and progress data
+        personalized_context = await get_enhanced_personalized_context(
+            request.user_id, 
+            user_name=user_name,
+            question_id=getattr(request, "question_id", None)
+        )
+        
+        # Log personalized context for debugging
+        logger = logging.getLogger(__name__)
+        logger.info(f"personalized_guidance: {personalized_context['personalized_guidance']}")
+        logger.info(f"user_patterns: {personalized_context['user_patterns']}")
         
         previous_attempt = None
         if progress_data and progress_data.get("success"):
@@ -41,7 +51,8 @@ async def analyze_approach(request: ApproachAnalysisRequest):
             user_answer=request.user_answer,
             user_name=user_name,
             previous_attempt=previous_attempt,
-            personalized_guidance=personalized_guidance
+            personalized_guidance=personalized_guidance,
+            user_patterns=personalized_context["user_patterns"] if "user_patterns" in personalized_context else None
         )
         
         # Remove any fields not documented in the API specification

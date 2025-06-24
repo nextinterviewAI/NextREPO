@@ -110,6 +110,13 @@ def get_fallback_analysis() -> dict:
 
 async def check_question_answered_by_id(user_id: str, question_bank_id: str) -> dict:
     url = f"{PROGRESS_API_BASE_URL.rstrip('/')}/mainQuestionBankProgress/checkQuestionAnsweredbyId"
+    
+    # Convert ObjectId to string if needed
+    if hasattr(question_bank_id, '__str__'):
+        question_bank_id = str(question_bank_id)
+    if hasattr(user_id, '__str__'):
+        user_id = str(user_id)
+    
     payload = {"userId": user_id, "questionBankId": question_bank_id}
     try:
         async with httpx.AsyncClient() as client:

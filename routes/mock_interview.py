@@ -3,7 +3,7 @@ from services.db import (
     fetch_interactions_for_session, fetch_user_history, get_db, fetch_base_question, get_available_topics, save_user_ai_interaction, validate_user_id, 
     create_interview_session, get_interview_session, update_interview_session_answer,
     add_follow_up_question, transition_to_coding_phase, save_interview_feedback,
-    get_user_interview_sessions, get_personalized_context, get_user_name_from_id
+    get_user_interview_sessions, get_personalized_context, get_user_name_from_id, get_enhanced_personalized_context
 )
 from services.llm.interview import get_next_question
 from services.llm.feedback import get_feedback
@@ -220,8 +220,17 @@ async def get_interview_feedback(session_id: str):
         if base_question_id:
             progress_data = await check_question_answered_by_id(str(session["user_id"]), base_question_id)
         
-        # Get personalized context based on user's previous interactions
-        personalized_context = await get_personalized_context(session["user_id"], session_data["topic"], session_data["user_name"])
+        # Get enhanced personalized context based on user's previous interactions and progress data
+        personalized_context = await get_enhanced_personalized_context(
+            session["user_id"], 
+            session_data["topic"], 
+            session_data.get("base_question_id"),
+            session_data["user_name"]
+        )
+        
+        # Log personalized context for debugging
+        logger.info(f"personalized_guidance: {personalized_context['personalized_guidance']}")
+        logger.info(f"user_patterns: {personalized_context['user_patterns']}")
         
         # Prepare conversation for feedback generation
         conversation = []
@@ -385,4 +394,29 @@ async def get_user_session_detail(user_id: str, session_id: str):
         raise
     except Exception as e:
         logger.error(f"Error getting session detail: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/user/patterns/{user_id}")
+async def get_user_patterns(user_id: str):
+    """Get enhanced user patterns data for debugging and analysis"""
+    try:
+        # Validate user_id
+        if not await validate_user_id(user_id):
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Get enhanced personalized context
+        user_name = await get_user_name_from_id(user_id)
+        personalized_context = await get_enhanced_personalized_context(
+            user_id, 
+            user_name=user_name
+        )
+        
+        return {
+            "user_patterns": personalized_context["user_patterns"],
+            "personalized_guidance": personalized_context["personalized_guidance"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting user patterns: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
