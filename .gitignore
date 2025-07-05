@@ -27,9 +27,6 @@ ENV/
 # Environment variables
 .env
 
-package/
-lambda_deploy.zip
-deployment_package
 Dockerfile
 # IDE
 .idea/
@@ -44,17 +41,4 @@ info.txt
 .zip
 API_DOCUMENTATION.md
 
-audio-layer/
-lambda-layer/
 
-data/
-
-test.py 
-
-\~$ompt For Mock Interview .docx
-
-Code_Optimization_Prompt (1).docx
-
-Prompt For Mock Interview .docx
-
-Prompts for Approach analysis.docx
