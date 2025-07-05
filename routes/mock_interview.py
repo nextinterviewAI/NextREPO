@@ -1,3 +1,10 @@
+"""
+Mock Interview API Routes
+
+This module contains all the API endpoints for the AI-powered mock interview system.
+It handles interview initialization, answer submission, feedback generation, and user session management.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, Body
 from services.db import (
     fetch_interactions_for_session, fetch_user_history, get_db, fetch_base_question, get_available_topics, save_user_ai_interaction, validate_user_id, 
@@ -5,7 +12,7 @@ from services.db import (
     add_follow_up_question, transition_to_coding_phase, save_interview_feedback,
     get_user_interview_sessions, get_personalized_context, get_user_name_from_id, get_enhanced_personalized_context
 )
-from services.llm.interview import get_next_question
+from services.interview import get_next_question
 from services.llm.feedback import get_feedback
 from services.llm.clarification import get_clarification
 from services.llm.check_answer_quality import check_answer_quality, check_single_answer_quality
@@ -22,21 +29,32 @@ router = APIRouter(tags=["Mock Interview"])
 
 @router.post("/init")
 async def init_interview(init_data: InterviewInit):
+    """
+    Initialize a new mock interview session.
+    Creates session with base question, generates first follow-up, and stores in database.
+    """
     if not await validate_user_id(init_data.user_id):
         raise HTTPException(status_code=404, detail="User not found")
     try:
+        # Create unique session ID
         session_id = f"{init_data.user_id}_{init_data.topic}_{datetime.now().timestamp()}"
         base_question_data = await fetch_base_question(init_data.topic)
+        
+        # Get RAG context for better question generation
         retriever = await get_rag_retriever()
         rag_context = ""
         if retriever is not None:
             context_chunks = await retriever.retrieve_context(init_data.topic)
             rag_context = "\n\n".join(context_chunks)
+        
+        # Generate first follow-up question
         try:
             first_follow_up = await get_next_question([], is_base_question=True, topic=init_data.topic, rag_context=rag_context)
         except Exception as e:
             logger.error(f"Error generating follow-up question: {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error generating follow-up question: {str(e)}")
+        
+        # Create interview session in database
         try:
             user_name = await get_user_name_from_id(init_data.user_id)
             await create_interview_session(
@@ -52,6 +70,8 @@ async def init_interview(init_data: InterviewInit):
         except Exception as e:
             logger.error(f"Failed to create interview session: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to create interview session: {str(e)}")
+        
+        # Return session details
         response = {
             "session_id": session_id,
             "base_question": base_question_data["question"],
@@ -72,9 +92,12 @@ async def init_interview(init_data: InterviewInit):
 
 @router.post("/answer")
 async def submit_answer(answer_request: AnswerRequest = Body(...)):
+    """
+    Submit user's answer during interview session.
+    Handles both questioning and coding phases, generates follow-up questions or transitions to coding.
+    """
     try:
         session_id = answer_request.session_id
-        # Get the complete interview session
         session = await get_interview_session(session_id)
         if not session:
             logger.error(f"Session not found: {session_id}")
@@ -82,7 +105,7 @@ async def submit_answer(answer_request: AnswerRequest = Body(...)):
         
         current_phase = session["meta"]["session_data"]["current_phase"]
         
-        # Handle clarification requests during the coding phase
+        # Handle coding phase (clarifications or final code submission)
         if current_phase == "coding":
             if answer_request.clarification:
                 try:
@@ -99,26 +122,24 @@ async def submit_answer(answer_request: AnswerRequest = Body(...)):
                     logger.error(f"Error generating clarification: {str(e)}", exc_info=True)
                     raise HTTPException(status_code=500, detail=f"Error generating clarification: {str(e)}")
             else:
-                 # If it's the coding phase, but not a clarification, it's the final code submission
+                # Final code submission
                 await update_interview_session_answer(session_id, answer_request.answer, False)
                 await transition_to_coding_phase(session_id)
                 return {"message": "Code submitted successfully. Generating feedback."}
 
-        # Update the session with the user's answer for the questioning phase
+        # Update session with user's answer
         await update_interview_session_answer(session_id, answer_request.answer, False)
-        
-        # Get updated session data
         session = await get_interview_session(session_id)
         session_data = session["meta"]["session_data"]
         
-        # Retrieve RAG context for quality check and next question
+        # Get RAG context for quality check and next question
         retriever = await get_rag_retriever()
         rag_context = ""
         if retriever:
             context_chunks = await retriever.retrieve_context(session_data["topic"])
             rag_context = "\n\n".join(context_chunks)
 
-        # Check the quality of the user's most recent answer
+        # Check answer quality
         last_answered_question = None
         for q in reversed(session_data["follow_up_questions"]):
             if q.get("answer"):
@@ -126,6 +147,7 @@ async def submit_answer(answer_request: AnswerRequest = Body(...)):
                 break
         if not last_answered_question:
             last_answered_question = session_data["follow_up_questions"][-1]
+            
         quality = await check_single_answer_quality(
             question=last_answered_question["question"],
             answer=last_answered_question.get("answer", ""),
@@ -133,6 +155,7 @@ async def submit_answer(answer_request: AnswerRequest = Body(...)):
             rag_context=rag_context
         )
 
+        # Provide feedback for poor quality answers
         if quality == "bad":
             feedback_message = await generate_clarification_feedback(
                 last_answered_question["question"],
@@ -144,16 +167,13 @@ async def submit_answer(answer_request: AnswerRequest = Body(...)):
                 "language": session["ai_response"]["language"]
             }
 
-        # Determine next action based on question count
         total_questions = session_data["total_questions"]
         
-        # If less than 5 questions, ask the next follow-up
+        # Generate next question if less than 5 questions
         if total_questions < 5:
-            # Correctly assign roles: AI's question is 'assistant', user's answer is 'user'
             conversation_history = []
             if session_data.get("questions"):
                 base_question = session_data["questions"][0]
-                # The base question is provided by the system, so it's an assistant role
                 conversation_history.append({"role": "assistant", "content": base_question["question"]})
 
             for q in session_data["follow_up_questions"]:
@@ -174,7 +194,7 @@ async def submit_answer(answer_request: AnswerRequest = Body(...)):
                 logger.error(f"Error generating next question: {str(e)}", exc_info=True)
                 raise HTTPException(status_code=500, detail=f"Error generating next question: {str(e)}")
         
-        # If 5 questions have been answered well, transition to coding phase
+        # Transition to coding phase after 5 questions
         else:
             await transition_to_coding_phase(session_id)
             return {
@@ -193,30 +213,26 @@ async def submit_answer(answer_request: AnswerRequest = Body(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 def ensure_feedback_fields(feedback, base_question):
-    # Always set base_question
+    """
+    Ensure all required feedback fields are present with default values.
+    """
     feedback['base_question'] = base_question or "No base question available."
-    # Always set summary
     feedback['summary'] = feedback.get('summary') or "No summary provided."
-    # Always set positive_points
-    if not feedback.get('positive_points') or not isinstance(feedback['positive_points'], list) or len(feedback['positive_points']) == 0:
-        feedback['positive_points'] = ["No clear strengths were demonstrated in this interview."]
-    # Always set points_to_address
-    if not feedback.get('points_to_address') or not isinstance(feedback['points_to_address'], list) or len(feedback['points_to_address']) == 0:
-        feedback['points_to_address'] = ["No specific points to address were identified."]
-    # Always set areas_for_improvement
-    if not feedback.get('areas_for_improvement') or not isinstance(feedback['areas_for_improvement'], list) or len(feedback['areas_for_improvement']) == 0:
-        feedback['areas_for_improvement'] = ["No areas for improvement were identified."]
-    # Always set metrics with required keys
-    metrics = feedback.get('metrics', {})
-    metrics['technical_skills'] = metrics.get('technical_skills', "No data available.")
-    metrics['communication_skills'] = metrics.get('communication_skills', "No data available.")
-    feedback['metrics'] = metrics
+    feedback['positive_points'] = feedback.get('positive_points') or []
+    feedback['areas_for_improvement'] = feedback.get('areas_for_improvement') or []
+    feedback['overall_score'] = feedback.get('overall_score') or 0
+    feedback['detailed_feedback'] = feedback.get('detailed_feedback') or "No detailed feedback available."
+    feedback['recommendations'] = feedback.get('recommendations') or []
+    
     return feedback
 
 @router.get("/feedback/{session_id}")
 async def get_interview_feedback(session_id: str):
+    """
+    Generate comprehensive feedback for completed interview session.
+    Analyzes conversation and provides personalized feedback with recommendations.
+    """
     try:
-        # Get the complete interview session
         session = await get_interview_session(session_id)
         if not session:
             logger.error(f"Session not found: {session_id}")
@@ -230,22 +246,21 @@ async def get_interview_feedback(session_id: str):
             user_name = "User"
         session_data["user_name"] = user_name
         
-        # Check if feedback already exists
+        # Return existing feedback if available
         if session_data.get("feedback"):
             feedback = session_data["feedback"]
             if "base_question" not in feedback and session_data.get("questions"):
                 feedback["base_question"] = session_data["questions"][0].get("question")
-            # Ensure all required fields are present
             feedback = ensure_feedback_fields(feedback, session_data["questions"][0].get("question") if session_data.get("questions") else None)
             return feedback
         
-        # --- Progress API check ---
+        # Check progress API for previous attempts
         base_question_id = session_data.get("base_question_id")
         progress_data = None
         if base_question_id:
             progress_data = await check_question_answered_by_id(str(session["user_id"]), base_question_id)
         
-        # Get enhanced personalized context based on user's previous interactions and progress data
+        # Get personalized context for enhanced feedback
         personalized_context = await get_enhanced_personalized_context(
             session["user_id"], 
             session_data["topic"], 
@@ -253,28 +268,24 @@ async def get_interview_feedback(session_id: str):
             session_data["user_name"]
         )
         
-        # Log personalized context for debugging
         logger.info(f"personalized_guidance: {personalized_context['personalized_guidance']}")
         logger.info(f"user_patterns: {personalized_context['user_patterns']}")
         
-        # Prepare conversation for feedback generation
+        # Build conversation for feedback generation
         conversation = []
         
-        # Add base question and answer
         if session_data["questions"]:
             conversation.append({
                 "question": session_data["questions"][0]["question"],
                 "answer": session_data["questions"][0]["answer"]
             })
         
-        # Add follow-up questions and answers
         for q in session_data["follow_up_questions"]:
             conversation.append({
                 "question": q["question"],
                 "answer": q["answer"]
             })
         
-        # Add clarifications
         for c in session_data["clarifications"]:
             conversation.append({
                 "question": f"[Clarification] {c['question']}",
@@ -294,7 +305,7 @@ async def get_interview_feedback(session_id: str):
             user_patterns=personalized_context["user_patterns"] if "user_patterns" in personalized_context else None
         )
         
-        # If progress API says already answered, add info to feedback
+        # Add previous attempt info if available
         previous_attempt = None
         if progress_data and progress_data.get("success"):
             previous_attempt = {
@@ -303,11 +314,11 @@ async def get_interview_feedback(session_id: str):
                 "output": progress_data["data"].get("output", "")
             }
         
-        # Create full feedback data for database storage (includes user patterns)
+        # Save full feedback data to database
         full_feedback_data = feedback_data.copy()
         full_feedback_data["user_patterns"] = personalized_context["user_patterns"]
         
-        # Create documented response (only fields specified in API documentation)
+        # Create documented response
         documented_response = {
             "summary": feedback_data.get("summary", ""),
             "positive_points": feedback_data.get("positive_points", []),
@@ -317,10 +328,10 @@ async def get_interview_feedback(session_id: str):
         if previous_attempt:
             documented_response["previous_attempt"] = previous_attempt
         
-        # Save full feedback data to session (includes user patterns)
+        # Save feedback to session
         await save_interview_feedback(session_id, full_feedback_data)
         
-        # Add base question to the feedback response
+        # Add base question to response
         if session_data.get("questions"):
             full_feedback_data["base_question"] = session_data["questions"][0].get("question")
         
@@ -337,7 +348,10 @@ async def get_interview_feedback(session_id: str):
 
 @router.get("/topics")
 async def get_topics():
-    """Get list of available interview topics"""
+    """
+    Get all available interview topics.
+    Returns list of topics users can select for mock interviews.
+    """
     try:
         topics = await get_available_topics()
         return {"topics": topics}
@@ -347,6 +361,10 @@ async def get_topics():
 
 @router.get("/user/interactions/{user_id}")
 async def get_user_interactions(user_id: str, limit: int = 50):
+    """
+    Get user's AI interaction history.
+    Returns past interactions including interviews, code optimization, and analysis sessions.
+    """
     try:
         if not await validate_user_id(user_id):
             raise HTTPException(status_code=404, detail="User not found")
@@ -358,15 +376,17 @@ async def get_user_interactions(user_id: str, limit: int = 50):
 
 @router.get("/user/sessions/{user_id}")
 async def get_user_sessions(user_id: str, limit: int = 20):
-    """Get all interview sessions for a user"""
+    """
+    Get user's interview session history.
+    Returns all mock interview sessions with metadata and status information.
+    """
     try:
-        # Validate user_id
         if not await validate_user_id(user_id):
             raise HTTPException(status_code=404, detail="User not found")
         
         sessions = await get_user_interview_sessions(user_id, limit)
         
-        # Format response
+        # Format response with session metadata
         formatted_sessions = []
         for session in sessions:
             session_data = session["meta"]["session_data"]
@@ -391,9 +411,11 @@ async def get_user_sessions(user_id: str, limit: int = 20):
 
 @router.get("/user/session/{user_id}/{session_id}")
 async def get_user_session_detail(user_id: str, session_id: str):
-    """Get detailed information about a specific interview session"""
+    """
+    Get detailed information about specific interview session.
+    Returns complete session data including questions, answers, and feedback.
+    """
     try:
-        # Validate user_id
         if not await validate_user_id(user_id):
             raise HTTPException(status_code=404, detail="User not found")
         
@@ -401,7 +423,7 @@ async def get_user_session_detail(user_id: str, session_id: str):
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        # Verify the session belongs to the user
+        # Verify session belongs to user
         if str(session["user_id"]) != user_id:
             raise HTTPException(status_code=403, detail="Access denied")
         
@@ -430,9 +452,11 @@ async def get_user_session_detail(user_id: str, session_id: str):
 
 @router.get("/user/patterns/{user_id}")
 async def get_user_patterns(user_id: str):
-    """Get enhanced user patterns data for debugging and analysis"""
+    """
+    Get enhanced user patterns data for debugging and analysis.
+    Returns personalized context and user behavior patterns.
+    """
     try:
-        # Validate user_id
         if not await validate_user_id(user_id):
             raise HTTPException(status_code=404, detail="User not found")
         

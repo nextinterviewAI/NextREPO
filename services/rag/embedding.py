@@ -1,3 +1,10 @@
+"""
+Embedding Generation Module
+
+This module handles text embedding generation using OpenAI's embedding API.
+Provides functions for converting text to vector representations for RAG.
+"""
+
 from openai import AsyncOpenAI
 import os
 import logging
@@ -18,7 +25,7 @@ except ImportError:
 
 async def get_embedding(text: str) -> List[float]:
     """
-    Generate embedding for given text using shared or fallback OpenAI client
+    Generate embedding for given text using OpenAI's text-embedding-ada-002 model.
     
     Args:
         text (str): Input text to embed

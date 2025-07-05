@@ -1,3 +1,10 @@
+"""
+Database Services Module
+
+This module provides database operations for user interactions, interview sessions,
+personalization, and question bank management using MongoDB.
+"""
+
 # Core database functions
 from .database import get_db, create_indexes, check_collections, validate_user_id
 

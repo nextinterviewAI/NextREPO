@@ -27,9 +27,6 @@ ENV/
 # Environment variables
 .env
 
-package/
-lambda_deploy.zip
-deployment_package
 Dockerfile
 # IDE
 .idea/
@@ -41,11 +38,5 @@ Dockerfile
 deployment_package/
 info.txt
 
+API_DOCUMENTATION.md
 
-
-audio-layer/
-lambda-layer/
-
-data/
-
-test.py 

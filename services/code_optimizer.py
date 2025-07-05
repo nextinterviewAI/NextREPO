@@ -1,3 +1,10 @@
+"""
+Code Optimization Service
+
+This module provides code optimization functionality for Python and SQL code.
+Uses AI to analyze, optimize, and improve code while maintaining functionality.
+"""
+
 from services.llm.utils import MODEL_NAME, client, retry_with_backoff, safe_strip, get_fallback_optimized_code
 from typing import Union, Optional
 import logging
@@ -13,6 +20,10 @@ async def generate_optimized_code(
     sample_output: str,
     rag_context: Optional[str] = None
 ) -> str:
+    """
+    Generate optimized version of user's code.
+    Analyzes code and provides improvements while maintaining functionality.
+    """
     try:
         prompt = f"""
 # Code Optimization Assistant for Data Roles
@@ -158,7 +169,8 @@ async def generate_optimization_summary(
     question: str = ""
 ) -> str:
     """
-    Use the LLM to summarize what was changed and optimized between the original and optimized code.
+    Generate summary of changes between original and optimized code.
+    Provides bullet points of improvements and optimizations made.
     """
     try:
         prompt = f"""
@@ -194,6 +206,10 @@ async def generate_optimized_code_with_summary(
     sample_output: str,
     rag_context: Optional[str] = None
 ) -> dict:
+    """
+    Generate optimized code with detailed summary.
+    Combines code optimization and explanation in single response.
+    """
     try:
         optimized_json = await generate_optimized_code(
             question=question,
@@ -226,4 +242,4 @@ async def generate_optimized_code_with_summary(
         return {
             "optimized_code": get_fallback_optimized_code(),
             "optimization_summary": "No summary available."
-        }
+        } 

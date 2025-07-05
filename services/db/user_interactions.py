@@ -1,3 +1,10 @@
+"""
+User Interactions Database Module
+
+This module handles storage and retrieval of user-AI interactions.
+Manages interaction history, session data, and user analytics.
+"""
+
 import logging
 from datetime import datetime
 from bson import ObjectId
@@ -6,7 +13,10 @@ from .database import get_db
 logger = logging.getLogger(__name__)
 
 async def save_user_ai_interaction(user_id: str, endpoint: str, input_data: dict, ai_response: dict, meta: dict = None):
-    """Save user-AI interaction to database"""
+    """
+    Save user-AI interaction to database.
+    Stores interaction data with timestamp and metadata.
+    """
     try:
         db = await get_db()
         
@@ -17,6 +27,7 @@ async def save_user_ai_interaction(user_id: str, endpoint: str, input_data: dict
         except:
             save_user_id = user_id
         
+        # Create interaction document
         doc = {
             "user_id": save_user_id,
             "timestamp": datetime.utcnow(),
@@ -36,7 +47,10 @@ async def save_user_ai_interaction(user_id: str, endpoint: str, input_data: dict
         raise
 
 async def fetch_interactions_for_session(user_id: str, session_id: str):
-    """Fetch interactions for a specific session"""
+    """
+    Fetch interactions for a specific session.
+    Returns all interactions for a given user and session.
+    """
     db = await get_db()
     # Convert string user_id to ObjectId if it's a valid ObjectId format
     try:
@@ -57,6 +71,7 @@ async def fetch_interactions_for_session(user_id: str, session_id: str):
         session_id_in_db = input_data.get("session_id")
         logger.info(f"Interaction session_id: {session_id_in_db}")
     
+    # Fetch interactions for specific session
     interactions = await db.user_ai_interactions.find({
         "user_id": query_user_id,
         "input.session_id": session_id
@@ -66,7 +81,10 @@ async def fetch_interactions_for_session(user_id: str, session_id: str):
     return interactions
 
 async def fetch_user_history(user_id: str, limit: int = 50):
-    """Fetch user's interaction history"""
+    """
+    Fetch user's interaction history.
+    Returns recent interactions sorted by timestamp.
+    """
     db = await get_db()
     # Convert string user_id to ObjectId if it's a valid ObjectId format
     try:
@@ -81,7 +99,10 @@ async def fetch_user_history(user_id: str, limit: int = 50):
     return interactions
 
 async def get_user_interaction_history(user_id: str, limit: int = 20):
-    """Get user's interaction history for personalization"""
+    """
+    Get user's interaction history for personalization.
+    Returns recent interactions for analysis and pattern recognition.
+    """
     try:
         db = await get_db()
         
@@ -103,7 +124,10 @@ async def get_user_interaction_history(user_id: str, limit: int = 20):
         raise
 
 async def fetch_user_session_summaries(user_id: str, limit: int = 20):
-    """Fetch user session summaries"""
+    """
+    Fetch user session summaries.
+    Aggregates interactions by session and returns summary data.
+    """
     db = await get_db()
     # Convert string user_id to ObjectId if it's a valid ObjectId format
     try:
@@ -126,6 +150,7 @@ async def fetch_user_session_summaries(user_id: str, limit: int = 20):
         {"$limit": limit}
     ]
     summaries = await db.user_ai_interactions.aggregate(pipeline).to_list(length=limit)
+    
     # Format output
     return [
         {
@@ -139,7 +164,10 @@ async def fetch_user_session_summaries(user_id: str, limit: int = 20):
     ]
 
 async def get_user_name_from_history(user_id: str) -> str:
-    """Get user name from their most recent session"""
+    """
+    Get user name from their most recent session.
+    Returns user name for personalization in feedback.
+    """
     try:
         db = await get_db()
         

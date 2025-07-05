@@ -1,5 +1,10 @@
 # Mock Interview API Documentation
 
+<!-- 
+This document provides comprehensive API documentation for the Mock Interview system.
+It covers all endpoints for interview management, user interactions, and RAG functionality.
+-->
+
 ## Base URL
 ```
 https://nextinterview.ai/fastapi/
@@ -7,7 +12,10 @@ https://nextinterview.ai/fastapi/
 
 ## Available Endpoints
 
+<!-- Interview Management Endpoints -->
+
 ### 1. Get Available Topics
+<!-- Retrieves list of available interview topics for user selection -->
 ```http
 GET /topics
 ```
@@ -31,6 +39,7 @@ GET /topics
 ```
 
 ### 2. Initialize Interview
+<!-- Creates a new interview session with initial question and setup -->
 ```http
 POST /init
 ```
@@ -58,6 +67,7 @@ POST /init
 ```
 
 ### 3. Submit Text Answer
+<!-- Processes user answers and provides follow-up questions or transitions to coding -->
 ```http
 POST /answer
 ```
@@ -110,6 +120,7 @@ POST /answer
 ```
 
 ### 4. Get Interview Feedback
+<!-- Retrieves comprehensive feedback for completed interview sessions -->
 ```http
 GET /feedback/{session_id}
 ```
@@ -124,7 +135,10 @@ GET /feedback/{session_id}
 }
 ```
 
+<!-- User Management Endpoints -->
+
 ### 5. Get User Interactions
+<!-- Retrieves user's interaction history for analysis and personalization -->
 ```http
 GET /user/interactions/{user_id}?limit=50
 ```
@@ -137,6 +151,7 @@ GET /user/interactions/{user_id}?limit=50
 ```
 
 ### 6. Get User Sessions
+<!-- Retrieves list of user's interview sessions with summary information -->
 ```http
 GET /user/sessions/{user_id}?limit=20
 ```
@@ -161,6 +176,7 @@ GET /user/sessions/{user_id}?limit=20
 ```
 
 ### 7. Get User Session Detail
+<!-- Retrieves detailed information for a specific interview session -->
 ```http
 GET /user/session/{user_id}/{session_id}
 ```
@@ -184,7 +200,33 @@ GET /user/session/{user_id}/{session_id}
 }
 ```
 
-### 8. Analyze Approach
+### 8. Get User Patterns
+<!-- Retrieves enhanced user patterns data for debugging and analysis -->
+```http
+GET /user/patterns/{user_id}
+```
+
+**Response:**
+```json
+{
+    "user_patterns": {
+        "recent_topics": ["string"],
+        "performance_trend": [number],
+        "common_weaknesses": ["string"],
+        "strengths": ["string"],
+        "completion_rate": number,
+        "avg_response_length": number,
+        "average_score": number,
+        "total_sessions": number
+    },
+    "personalized_guidance": "string"
+}
+```
+
+<!-- Analysis and Optimization Endpoints -->
+
+### 9. Analyze Approach
+<!-- Analyzes user's approach to a question and provides detailed feedback -->
 ```http
 POST /approach/analyze-approach
 ```
@@ -208,7 +250,8 @@ POST /approach/analyze-approach
 }
 ```
 
-### 9. Optimize Code
+### 10. Optimize Code
+<!-- Analyzes and optimizes user's code with detailed explanations -->
 ```http
 POST /code/optimize-code
 ```
@@ -232,7 +275,10 @@ POST /code/optimize-code
 }
 ```
 
-### 10. Retrieve RAG Context
+<!-- RAG System Endpoints -->
+
+### 11. Retrieve RAG Context
+<!-- Retrieves relevant context from knowledge base for interview questions -->
 ```http
 POST /rag/retrieve
 ```
@@ -253,7 +299,8 @@ POST /rag/retrieve
 }
 ```
 
-### 11. Get RAG Status
+### 12. Get RAG Status
+<!-- Checks the status of the RAG system and initialization -->
 ```http
 GET /rag/status
 ```
@@ -266,6 +313,8 @@ GET /rag/status
 }
 ```
 
+<!-- Example Response -->
+<!-- Sample feedback response showing detailed analysis structure -->
 {
     "summary": "Test Admin demonstrated a strong understanding of database schema design, normalization principles, and data integrity constraints. Their explanations were detailed and showcased a methodical approach to SQL query construction.",
     "positive_points": [

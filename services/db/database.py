@@ -1,3 +1,10 @@
+"""
+Core Database Module
+
+This module provides core database connection and management functions.
+Handles MongoDB connection, index creation, and user validation.
+"""
+
 import os
 import logging
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -11,14 +18,20 @@ client = None
 db = None
 
 async def get_db():
-    """Get database instance"""
+    """
+    Get database instance.
+    Creates connection if not already established.
+    """
     global db
     if db is None:
         await connect_to_db()
     return db
 
 async def connect_to_db():
-    """Connect to MongoDB"""
+    """
+    Connect to MongoDB database.
+    Uses environment variables for connection configuration.
+    """
     global client, db
     try:
         mongodb_uri = os.getenv("MONGODB_URI")
@@ -39,7 +52,10 @@ async def connect_to_db():
         raise
 
 async def create_indexes():
-    """Create necessary database indexes"""
+    """
+    Create necessary database indexes for performance optimization.
+    Sets up indexes for user interactions, sessions, and question banks.
+    """
     try:
         db = await get_db()
         
@@ -68,7 +84,10 @@ async def create_indexes():
         raise
 
 async def check_collections():
-    """Check if required collections exist and have data"""
+    """
+    Check if required collections exist and have data.
+    Validates database setup and reports collection status.
+    """
     try:
         db = await get_db()
         
@@ -92,7 +111,10 @@ async def check_collections():
         return False
 
 async def validate_user_id(user_id: str) -> bool:
-    """Validate if user_id exists in the database"""
+    """
+    Validate if user_id exists in the database.
+    Handles both ObjectId and string user IDs.
+    """
     try:
         db = await get_db()
         

@@ -1,3 +1,10 @@
+"""
+Question Bank Database Module
+
+This module handles question bank operations and topic management.
+Provides functions for fetching questions, topics, and user information.
+"""
+
 import logging
 from bson import ObjectId
 from .database import get_db
@@ -5,11 +12,15 @@ from .database import get_db
 logger = logging.getLogger(__name__)
 
 async def fetch_base_question(topic: str):
-    """Fetch base question for a topic from mainquestionbanks"""
+    """
+    Fetch base question for a topic from mainquestionbanks.
+    Returns randomly selected question with metadata for interviews.
+    """
     try:
         db = await get_db()
         logger.info(f"Fetching base question for topic: {topic}")
         
+        # Find topic document
         topic_doc = await db.interview_topics.find_one({"topic": topic})
         if not topic_doc:
             raise Exception(f"Topic '{topic}' not found")
@@ -17,6 +28,7 @@ async def fetch_base_question(topic: str):
         topic_id = topic_doc["_id"]
         logger.info(f"Found topic ID: {topic_id}")
 
+        # Build aggregation pipeline for random question selection
         pipeline = [
             {
                 "$match": {
@@ -31,6 +43,7 @@ async def fetch_base_question(topic: str):
             {"$sample": {"size": 1}}
         ]
 
+        # Check available question count
         count = await db.mainquestionbanks.count_documents({
             "topicId": topic_id,
             "$or": [
@@ -41,6 +54,7 @@ async def fetch_base_question(topic: str):
         })
         logger.warning(f"Found {count} available questions for topic '{topic}' with topicId {topic_id}")
 
+        # Execute aggregation pipeline
         cursor = db.mainquestionbanks.aggregate(pipeline)
         result = await cursor.to_list(length=1)
 
@@ -51,6 +65,7 @@ async def fetch_base_question(topic: str):
         question_doc = result[0]
         logger.info(f"Fetched question: {question_doc.get('question', 'No question text')}")
 
+        # Return formatted question data
         return {
             "_id": str(question_doc.get("_id")),
             "question": question_doc.get("question", ""),
@@ -66,7 +81,10 @@ async def fetch_base_question(topic: str):
         raise
 
 async def get_available_topics():
-    """Get list of available interview topics"""
+    """
+    Get list of available interview topics.
+    Returns all topics from interview_topics collection.
+    """
     try:
         db = await get_db()
         
@@ -84,7 +102,10 @@ async def get_available_topics():
         return []
 
 async def get_user_name_from_id(user_id: str) -> str:
-    """Get user name from user ID"""
+    """
+    Get user name from user ID.
+    Handles both ObjectId and string user IDs.
+    """
     try:
         db = await get_db()
         

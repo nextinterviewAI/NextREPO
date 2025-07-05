@@ -1,3 +1,10 @@
+"""
+Personalization Database Module
+
+This module handles user personalization and pattern analysis.
+Provides functions for analyzing user behavior and generating personalized guidance.
+"""
+
 import logging
 from collections import Counter
 from .database import get_db
@@ -6,7 +13,10 @@ from .user_interactions import get_user_interaction_history
 logger = logging.getLogger(__name__)
 
 async def get_enhanced_personalized_context(user_id: str, current_topic: str = None, question_id: str = None, user_name: str = None):
-    """Get enhanced personalized context using user_ai_interactions and progress API data"""
+    """
+    Get enhanced personalized context using user interaction history.
+    Analyzes patterns and generates personalized guidance for interviews.
+    """
     try:
         # Get recent interactions (last 15 for better pattern analysis)
         recent_interactions = await get_user_interaction_history(user_id, limit=15)
@@ -40,7 +50,10 @@ async def get_enhanced_personalized_context(user_id: str, current_topic: str = N
         return {"user_patterns": {}, "personalized_guidance": ""}
 
 async def extract_interaction_patterns(interactions: list, current_topic: str = None):
-    """Extract patterns from user interactions efficiently"""
+    """
+    Extract patterns from user interactions efficiently.
+    Analyzes performance trends, weaknesses, strengths, and usage patterns.
+    """
     try:
         patterns = {
             "recent_topics": [],
@@ -58,6 +71,7 @@ async def extract_interaction_patterns(interactions: list, current_topic: str = 
         total_sessions = 0
         response_lengths = []
         
+        # Analyze each interaction
         for interaction in interactions:
             endpoint = interaction.get("endpoint", "")
             patterns["endpoint_usage"][endpoint] = patterns["endpoint_usage"].get(endpoint, 0) + 1
@@ -140,7 +154,10 @@ async def extract_interaction_patterns(interactions: list, current_topic: str = 
         return {}
 
 def generate_enhanced_guidance(patterns: dict, user_name: str = None):
-    """Generate enhanced personalized guidance based on interaction patterns"""
+    """
+    Generate enhanced personalized guidance based on interaction patterns.
+    Creates actionable feedback based on performance analysis.
+    """
     try:
         guidance_parts = []
         name_reference = f"{user_name}" if user_name else "You"
@@ -192,7 +209,10 @@ def generate_enhanced_guidance(patterns: dict, user_name: str = None):
         return ""
 
 async def analyze_user_patterns(user_id: str):
-    """Analyze user patterns from previous interactions for personalization"""
+    """
+    Analyze user patterns from previous interactions for personalization.
+    Provides comprehensive analysis of user behavior and performance.
+    """
     try:
         interactions = await get_user_interaction_history(user_id, limit=50)
         
@@ -275,7 +295,10 @@ async def analyze_user_patterns(user_id: str):
         return {}
 
 async def get_personalized_context(user_id: str, current_topic: str = None, user_name: str = None):
-    """Get personalized context based on user's previous interactions"""
+    """
+    Get personalized context based on user's previous interactions.
+    Provides basic personalization for backward compatibility.
+    """
     try:
         patterns = await analyze_user_patterns(user_id)
         

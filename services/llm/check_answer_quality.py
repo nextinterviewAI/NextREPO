@@ -1,3 +1,10 @@
+"""
+Answer Quality Assessment Service
+
+This module provides AI-powered assessment of answer quality during interviews.
+Evaluates responses based on clarity, correctness, and technical knowledge.
+"""
+
 from services.llm.utils import MODEL_NAME, client, retry_with_backoff, safe_strip
 from typing import List, Dict, Any, Optional
 import logging
@@ -6,7 +13,12 @@ logger = logging.getLogger(__name__)
 
 @retry_with_backoff
 async def check_answer_quality(questions: List[Dict[str, Any]], topic: str) -> str:
+    """
+    Assess quality of multiple interview answers.
+    Returns 'good' or 'bad' based on overall answer quality.
+    """
     try:
+        # Format questions and answers for assessment
         answers_text = "\n".join([
             f"Q{i+1}: {q['question']}\nA{i+1}: {q['answer']}"
             for i, q in enumerate(questions)
@@ -21,6 +33,7 @@ Answers:
 
 Quality:"""
 
+        # Generate quality assessment using AI
         response = await client.chat.completions.create(
             model=MODEL_NAME,
             messages=[{"role": "user", "content": prompt}],
@@ -37,17 +50,31 @@ Quality:"""
 
 @retry_with_backoff
 async def check_single_answer_quality(question: str, answer: str, topic: str, rag_context: Optional[str] = None) -> str:
+    """
+    Assess quality of a single interview answer.
+    Uses RAG context for domain-specific evaluation.
+    """
     try:
         prompt = f"""
 Review the following answer to the {topic} interview question.
-Respond with only 'good' if the answer is relevant and makes sense, or 'bad' if it is gibberish, empty, or irrelevant.
+Evaluate based on:
+- Clarity of communication and reasoning
+- Correctness of logic and approach
+- Ability to reason under pressure
+- Awareness of trade-offs and edge cases
+- Domain-specific technical knowledge
+
+Respond with only 'good' if the answer demonstrates clear reasoning, relevant technical knowledge, and addresses the question appropriately, or 'bad' if it is gibberish, empty, irrelevant, or lacks coherent reasoning.
 
 Question: {question}
 Answer: {answer}
 """
+        # Add RAG context if available for better evaluation
         if rag_context:
             prompt += f"\nReference Context:\n{rag_context}\n"
         prompt += "\nQuality:"
+        
+        # Generate quality assessment using AI
         response = await client.chat.completions.create(
             model=MODEL_NAME,
             messages=[{"role": "user", "content": prompt}],
