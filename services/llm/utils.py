@@ -1,3 +1,10 @@
+"""
+LLM Utilities Module
+
+This module provides utility functions for LLM interactions, including
+client management, retry logic, JSON parsing, and fallback responses.
+"""
+
 import openai
 import os
 import logging
@@ -31,14 +38,23 @@ MODEL_NAME = "gpt-4o-mini"
 PROGRESS_API_BASE_URL = os.getenv("PROGRESS_API_BASE_URL")
 
 def get_token_count(text: str, model: str = "cl100k_base") -> int:
+    """
+    Count tokens in text using tiktoken.
+    """
     encoding = tiktoken.get_encoding(model)
     return len(encoding.encode(text))
 
 def is_valid_for_embedding(text: str) -> bool:
+    """
+    Check if text is within token limit for embedding.
+    """
     return get_token_count(text) < TOKEN_LIMIT
 
 # === Retry Logic Wrapper ===
 def retry_with_backoff(func: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
+    """
+    Decorator for retrying failed API calls with exponential backoff.
+    """
     @wraps(func)
     async def wrapper(*args: Any, **kwargs: Any) -> Any:
         MAX_RETRIES = 3
@@ -59,10 +75,16 @@ def retry_with_backoff(func: Callable[..., Awaitable[Any]]) -> Callable[..., Awa
 
 # === Safe Strip Utility ===
 def safe_strip(text: Union[str, None]) -> str:
+    """
+    Safely strip whitespace from text, handling None values.
+    """
     return text.strip() if text else ""
 
 # === JSON Parser with Fallback ===
 def parse_json_response(content: Union[str, None], fallback: dict) -> dict:
+    """
+    Parse JSON response with fallback handling and markdown cleanup.
+    """
     content = safe_strip(content)
     if not content:
         logger.warning("Empty content passed to JSON parser")
@@ -84,15 +106,27 @@ def parse_json_response(content: Union[str, None], fallback: dict) -> dict:
 
 # === Fallback Responses ===
 def get_fallback_interview_question() -> str:
+    """
+    Return fallback question when AI generation fails.
+    """
     return "Could you explain your approach again?"
 
 def get_fallback_clarification() -> str:
+    """
+    Return fallback clarification when AI generation fails.
+    """
     return "Please rephrase your question."
 
 def get_fallback_optimized_code() -> str:
+    """
+    Return fallback code when optimization fails.
+    """
     return "# Error: Could not optimize code."
 
 def get_fallback_feedback(user_name: str = "Candidate") -> dict:
+    """
+    Return fallback feedback when generation fails.
+    """
     return {
         "summary": f"{user_name}, we encountered an issue generating feedback.",
         "positive_points": [],
@@ -102,6 +136,9 @@ def get_fallback_feedback(user_name: str = "Candidate") -> dict:
     }
 
 def get_fallback_analysis() -> dict:
+    """
+    Return fallback analysis when generation fails.
+    """
     return {
         "feedback": "Internal system error",
         "strengths": [],
@@ -110,6 +147,10 @@ def get_fallback_analysis() -> dict:
     }
 
 async def check_question_answered_by_id(user_id: str, question_bank_id: str) -> dict:
+    """
+    Check if user has previously answered a specific question.
+    Calls external progress API to get question history.
+    """
     url = f"{PROGRESS_API_BASE_URL.rstrip('/')}/mainQuestionBankProgress/checkQuestionAnsweredbyId"
     
     # Convert ObjectId to string if needed
@@ -131,7 +172,8 @@ async def check_question_answered_by_id(user_id: str, question_bank_id: str) -> 
 @retry_with_backoff
 async def generate_clarification_feedback(question: str, answer: str) -> str:
     """
-    Generate a clarification or follow-up prompt in the style of an interviewer, not a helper or tutor.
+    Generate clarification feedback for unclear or incomplete answers.
+    Provides interviewer-style follow-up questions.
     """
     prompt = f"""
 You are a technical interviewer. The candidate's answer to the following question was unclear, incomplete, or off-topic.

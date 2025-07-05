@@ -1,3 +1,10 @@
+"""
+Interview Sessions Database Module
+
+This module handles interview session management and state tracking.
+Provides functions for creating, updating, and retrieving interview sessions.
+"""
+
 import logging
 from datetime import datetime
 from bson import ObjectId
@@ -7,10 +14,8 @@ logger = logging.getLogger(__name__)
 
 def reconstruct_session_state(interactions):
     """
-    Given a list of interactions (sorted by timestamp), reconstruct the session state:
-    - questions: list of {question, answer}
-    - clarifications: list of {clarification, response}
-    - question_count, topic, etc.
+    Reconstruct session state from interaction history.
+    Builds session data from sorted interactions including questions and clarifications.
     """
     session_data = {"questions": [], "clarifications": [], "question_count": 1, "topic": None}
     for inter in interactions:
@@ -33,7 +38,10 @@ def reconstruct_session_state(interactions):
     return session_data
 
 async def create_interview_session(user_id: str, session_id: str, topic: str, user_name: str, base_question_data: dict, first_follow_up: str, base_question_id=None):
-    """Create a new interview session document in user_ai_interactions collection"""
+    """
+    Create a new interview session document.
+    Initializes session with base question and first follow-up.
+    """
     try:
         db = await get_db()
         
@@ -44,6 +52,7 @@ async def create_interview_session(user_id: str, session_id: str, topic: str, us
         except:
             save_user_id = user_id
         
+        # Create session document with all initial data
         session_doc = {
             "user_id": save_user_id,
             "session_id": session_id,
@@ -104,7 +113,10 @@ async def create_interview_session(user_id: str, session_id: str, topic: str, us
         raise
 
 async def get_interview_session(session_id: str):
-    """Get a complete interview session by session_id"""
+    """
+    Get a complete interview session by session_id.
+    Returns full session document with all metadata.
+    """
     try:
         db = await get_db()
         
@@ -115,7 +127,10 @@ async def get_interview_session(session_id: str):
         raise
 
 async def update_interview_session_answer(session_id: str, answer: str, is_clarification: bool = False):
-    """Update the interview session with a new answer"""
+    """
+    Update the interview session with a new answer.
+    Handles both regular answers and clarification requests.
+    """
     try:
         db = await get_db()
         
@@ -168,7 +183,10 @@ async def update_interview_session_answer(session_id: str, answer: str, is_clari
         raise
 
 async def add_follow_up_question(session_id: str, question: str):
-    """Add a new follow-up question to the session"""
+    """
+    Add a new follow-up question to the session.
+    Increments question count and updates session state.
+    """
     try:
         db = await get_db()
         
@@ -207,7 +225,10 @@ async def add_follow_up_question(session_id: str, question: str):
         raise
 
 async def transition_to_coding_phase(session_id: str):
-    """Transition the session to coding phase"""
+    """
+    Transition the session to coding phase.
+    Updates session state from questioning to coding phase.
+    """
     try:
         db = await get_db()
         
@@ -237,7 +258,10 @@ async def transition_to_coding_phase(session_id: str):
         raise
 
 async def save_interview_feedback(session_id: str, feedback_data: dict):
-    """Save feedback for the completed interview session"""
+    """
+    Save feedback for the completed interview session.
+    Marks session as completed and stores feedback data.
+    """
     try:
         db = await get_db()
         
@@ -269,7 +293,10 @@ async def save_interview_feedback(session_id: str, feedback_data: dict):
         raise
 
 async def get_user_interview_sessions(user_id: str, limit: int = 20):
-    """Get all interview sessions for a user"""
+    """
+    Get all interview sessions for a user.
+    Returns structured interview sessions sorted by timestamp.
+    """
     try:
         db = await get_db()
         

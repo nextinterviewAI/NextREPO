@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 RAG Precompute Script
-Processes documents from data/ folder and uploads semantic chunks to Qdrant
+
+This script processes documents from data/ folder and uploads semantic chunks to Qdrant.
+Handles document loading, chunking, embedding generation, and vector storage.
 """
 
 import asyncio
@@ -24,7 +26,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def create_collection_if_not_exists(collection_name: str = "docs"):
-    """Create Qdrant collection if it doesn't exist"""
+    """
+    Create Qdrant collection if it doesn't exist.
+    Sets up vector configuration for OpenAI embeddings.
+    """
     try:
         # Check if collection exists
         collections = qdrant_client.get_collections()
@@ -50,13 +55,17 @@ async def create_collection_if_not_exists(collection_name: str = "docs"):
         raise
 
 async def upload_chunks_to_qdrant(chunks: List[Dict[str, str]], collection_name: str = "docs"):
-    """Upload document chunks to Qdrant with embeddings"""
+    """
+    Upload document chunks to Qdrant with embeddings.
+    Generates embeddings for each chunk and stores with metadata.
+    """
     try:
         logger.info(f"Starting upload of {len(chunks)} chunks to Qdrant...")
         
         uploaded_count = 0
         failed_count = 0
         
+        # Process each chunk
         for i, chunk in enumerate(chunks):
             try:
                 # Generate embedding for the chunk
@@ -95,6 +104,7 @@ async def upload_chunks_to_qdrant(chunks: List[Dict[str, str]], collection_name:
                 
                 uploaded_count += 1
                 
+                # Log progress every 10 chunks
                 if uploaded_count % 10 == 0:
                     logger.info(f"Uploaded {uploaded_count} chunks...")
                     
@@ -110,7 +120,10 @@ async def upload_chunks_to_qdrant(chunks: List[Dict[str, str]], collection_name:
         raise
 
 async def main():
-    """Main precompute function"""
+    """
+    Main precompute function.
+    Orchestrates the entire RAG preprocessing pipeline.
+    """
     try:
         # Configuration
         data_dir = "data"

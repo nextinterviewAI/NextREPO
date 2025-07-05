@@ -1,3 +1,10 @@
+"""
+Approach Analysis Service
+
+This module provides AI-powered analysis of user's problem-solving approaches.
+Evaluates responses and provides personalized feedback based on user history.
+"""
+
 from services.llm.utils import MODEL_NAME, client, retry_with_backoff, safe_strip, parse_json_response, get_fallback_analysis
 from typing import Dict, Any
 import logging
@@ -7,12 +14,19 @@ import asyncio
 logger = logging.getLogger(__name__)
 
 class ApproachAnalysisService:
+    """
+    Service for analyzing user's problem-solving approaches.
+    Provides personalized feedback based on user history and patterns.
+    """
+    
     def __init__(self):
         self.client = client
         logger.info("ApproachAnalysisService using shared OpenAI client")
 
     async def _get_context(self, question: str, top_k: int = 2) -> str:
-        """Retrieve and format relevant context from RAG system"""
+        """
+        Retrieve relevant context from RAG system for question analysis.
+        """
         try:
             retriever = await get_rag_retriever()
             if retriever is None:
@@ -26,16 +40,20 @@ class ApproachAnalysisService:
 
     @retry_with_backoff
     async def analyze_approach(self, question: str, user_answer: str, user_name: str = None, previous_attempt: dict = None, personalized_guidance: str = None, user_patterns: Any = None) -> Dict[str, Any]:
+        """
+        Analyze user's approach to a question and provide personalized feedback.
+        Uses user history and patterns to tailor the analysis.
+        """
         try:
-            # Get relevant context from RAG
+            # Get relevant context from RAG system
             context = await self._get_context(question)
 
-            # Enhanced personalization context
+            # Build personalized context from user history
             extra_context = ""
             if previous_attempt:
                 extra_context += f"The candidate previously attempted this question. Their answer was: {previous_attempt.get('answer', '')}. The result was: {previous_attempt.get('result', '')}. The output was: {previous_attempt.get('output', '')}. Please naturally incorporate this information into your feedback, comparing the current and previous attempts if relevant.\n"
             
-            # Enhanced personalization context
+            # Add personalized guidance and user patterns
             if personalized_guidance or user_patterns:
                 extra_context += "PERSONALIZATION CONTEXT - Use this to tailor your feedback specifically to this candidate:\n"
                 
@@ -45,14 +63,14 @@ class ApproachAnalysisService:
                     extra_context += f"- Recent topics: {', '.join(patterns.get('recent_topics', []))}\n"
                     extra_context += f"- Performance trend (last 5): {patterns.get('performance_trend', [])}\n"
                     
-                    # Topic-specific performance
+                    # Add topic-specific performance data
                     if patterns.get('topic_specific_performance'):
                         topic_perf = patterns['topic_specific_performance']
                         if topic_perf.get('scores'):
                             avg_topic = sum(topic_perf['scores']) / len(topic_perf['scores'])
                             extra_context += f"- Topic-specific average: {avg_topic:.1f}/10\n"
                     
-                    # Question-specific history
+                    # Add question-specific history
                     if patterns.get('question_specific_history'):
                         q_history = patterns['question_specific_history']
                         extra_context += f"- Previous attempt at this question: Result {q_history.get('previous_result', 'N/A')}\n"
@@ -63,7 +81,7 @@ class ApproachAnalysisService:
                     if patterns.get('common_weaknesses'):
                         extra_context += f"- Areas needing improvement: {', '.join(patterns['common_weaknesses'][:3])}\n"
                     
-                    # Response patterns
+                    # Add response pattern analysis
                     avg_length = patterns.get('avg_response_length', 0)
                     if avg_length > 0:
                         extra_context += f"- Average response length: {avg_length:.0f} words\n"
@@ -75,7 +93,7 @@ class ApproachAnalysisService:
 
             extra_context += "IMPORTANT: Reference these patterns in your feedback. Connect current performance to past trends. Be specific about how they're improving or repeating patterns. Use the performance trend and topic-specific data to provide targeted advice.\n\n"
 
-            # Build final prompt with or without context
+            # Build final prompt with personalized context
             name_reference = f"{user_name}" if user_name else "the candidate"
             prompt = f"""
 You are an expert data science and AI interviewer evaluating {name_reference}'s approach to a technical question.
@@ -150,6 +168,7 @@ Return ONLY valid JSON in the following format:
 DO NOT return markdown, explanations, or any text outside the JSON object.
 """
 
+            # Generate analysis using AI
             response = await self.client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[

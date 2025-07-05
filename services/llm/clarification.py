@@ -1,3 +1,10 @@
+"""
+Clarification Service
+
+This module provides AI-powered clarification responses during coding interviews.
+Helps candidates understand problems better without giving away solutions.
+"""
+
 from services.llm.utils import client, retry_with_backoff, safe_strip, get_fallback_clarification
 from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam
 import logging
@@ -7,7 +14,12 @@ logger = logging.getLogger(__name__)
 
 @retry_with_backoff
 async def get_clarification(main_question: str, clarification_request: str) -> str:
+    """
+    Generate clarification response for coding interview questions.
+    Provides helpful guidance without revealing the solution.
+    """
     try:
+        # Build messages for clarification generation
         messages = [
             ChatCompletionSystemMessageParam(
                 role="system",
@@ -19,6 +31,7 @@ async def get_clarification(main_question: str, clarification_request: str) -> s
             )
         ]
 
+        # Generate clarification using AI
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,

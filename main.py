@@ -1,3 +1,10 @@
+"""
+FastAPI Main Application
+
+This module contains the main FastAPI application with all routes and middleware.
+Handles startup initialization, health checks, and error handling.
+"""
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from routes.mock_interview import router as mock_interview_router
@@ -17,6 +24,7 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -24,10 +32,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Check if running on AWS Lambda
 IS_LAMBDA = bool(os.getenv('AWS_LAMBDA_FUNCTION_NAME'))
 
+# Initialize FastAPI application
 app = FastAPI(title="Mock Interview API")
 
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -36,10 +47,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Global RAG retriever instance
 rag_retriever = None
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
+    """
+    Log all incoming requests and handle errors.
+    Provides request tracking and error logging.
+    """
     try:
         logger.info(f"Incoming request - Path: {request.url.path}, Method: {request.method}")
         env_vars = {k: v for k, v in os.environ.items() if k in ['MONGODB_URI', 'DB_NAME']}
@@ -64,6 +80,10 @@ async def log_requests(request: Request, call_next):
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
+    """
+    Handle HTTP exceptions and log errors.
+    Provides consistent error response format.
+    """
     logger.error(f"HTTP Error - Status: {exc.status_code}, Path: {request.url.path}, Detail: {exc.detail}")
     return JSONResponse(
         status_code=exc.status_code,
@@ -72,6 +92,10 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 @app.on_event("startup")
 async def startup_event():
+    """
+    Initialize application on startup.
+    Validates environment variables and initializes database and RAG system.
+    """
     try:
         # Log startup attempt
         logger.info("Starting application initialization...")
@@ -86,18 +110,22 @@ async def startup_event():
             
         logger.info("Environment variables validated")
         
+        # Initialize database connection
         logger.info("Attempting to connect to database...")
         db = await get_db()
         logger.info("Database connection successful")
         
+        # Create database indexes
         logger.info("Creating database indexes...")
         await create_indexes()
         logger.info("Database indexes created successfully")
         
+        # Verify database collections
         logger.info("Checking database collections...")
         await check_collections()
         logger.info("Database collections verified")
         
+        # Initialize RAG retriever
         try:
             logger.info("Initializing RAG retriever...")
             from services.rag.retriever_factory import get_rag_retriever
@@ -116,6 +144,7 @@ async def startup_event():
         if IS_LAMBDA:
             raise
 
+# Include all route modules
 app.include_router(mock_interview_router, prefix="/mock")
 app.include_router(code_optimization_router, prefix="/code")
 app.include_router(approach_analysis_router, prefix="/approach")
@@ -125,12 +154,15 @@ app.include_router(rag_router)
 @app.get("/health")
 async def health_check():
     """
-    Health check endpoint for monitoring
+    Health check endpoint for monitoring.
+    Verifies database connection and RAG system status.
     """
     try:
+        # Test database connection
         db = await get_db()
         await db.command("ping") # type: ignore
         
+        # Check RAG system status
         try:
             from services.rag.retriever_factory import get_retriever_status
             rag_status = get_retriever_status()

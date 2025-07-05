@@ -1,3 +1,10 @@
+"""
+Interview Service
+
+This module handles interview question generation and conversation management.
+Provides AI-powered follow-up questions based on candidate responses.
+"""
+
 from services.llm.utils import client, retry_with_backoff, safe_strip, get_fallback_interview_question
 from openai.types.chat import (
     ChatCompletionMessageParam,
@@ -53,26 +60,32 @@ async def get_next_question(
     topic: str = "",
     rag_context: Optional[str] = None
 ) -> str:
+    """
+    Generate next interview question based on conversation history.
+    Uses AI to create contextually relevant follow-up questions.
+    """
     try:
+        # Return standard first question for base questions
         if is_base_question:
             return "Can you walk me through your thought process on how you would approach this problem?"
 
-        # Build conversation using full message types
+        # Build conversation with system prompt and context
         messages: List[ChatCompletionMessageParam] = [
             ChatCompletionSystemMessageParam(role="system", content=SYSTEM_PROMPT)
         ]
 
+        # Add RAG context if available
         if rag_context:
             messages.append(ChatCompletionUserMessageParam(
                 role="user",
                 content=f"Reference Context for this topic/question:\n{rag_context}"
             ))
         
-        # questions is now a list of ChatCompletionMessageParam compatible dicts
+        # Add conversation history
         for q in questions:
             messages.append(q)
 
-        # Add final instruction
+        # Add instruction for follow-up question generation
         messages.append(ChatCompletionUserMessageParam(
             role="user",
             content="""Based on the candidate's response, ask a follow-up question that:
@@ -82,6 +95,7 @@ async def get_next_question(
 4. Is relevant to their previous answer"""
         ))
 
+        # Generate next question using AI
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,

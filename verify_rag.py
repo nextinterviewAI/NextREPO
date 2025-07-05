@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 RAG Verification Script
-Checks if documents were uploaded successfully to Qdrant
+
+This script checks if documents were uploaded successfully to Qdrant.
+Verifies collection existence, data integrity, and retrieval functionality.
 """
 
 import asyncio
@@ -21,7 +23,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def verify_collection():
-    """Verify Qdrant collection and data"""
+    """
+    Verify Qdrant collection and data.
+    Checks collection existence and point count.
+    """
     try:
         collection_name = "docs"
         
@@ -52,7 +57,10 @@ async def verify_collection():
         return False
 
 async def test_rag_retrieval():
-    """Test RAG retrieval functionality"""
+    """
+    Test RAG retrieval functionality.
+    Performs a test query to verify the RAG system works correctly.
+    """
     try:
         logger.info("Testing RAG retrieval...")
         
@@ -68,6 +76,7 @@ async def test_rag_retrieval():
         
         if context_chunks:
             logger.info(f"✅ RAG retrieval successful! Found {len(context_chunks)} chunks")
+            # Log first 100 characters of each chunk
             for i, chunk in enumerate(context_chunks):
                 logger.info(f"Chunk {i+1}: {chunk[:100]}...")
         else:
@@ -80,7 +89,10 @@ async def test_rag_retrieval():
         return False
 
 async def main():
-    """Main verification function"""
+    """
+    Main verification function.
+    Orchestrates the verification process for RAG system.
+    """
     try:
         logger.info("Starting RAG verification...")
         
@@ -98,6 +110,7 @@ async def main():
             logger.error("❌ RAG retrieval test failed!")
             return
         
+        # Success summary
         logger.info("=" * 50)
         logger.info("✅ RAG VERIFICATION COMPLETED SUCCESSFULLY!")
         logger.info("=" * 50)

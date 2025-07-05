@@ -38,7 +38,5 @@ Dockerfile
 deployment_package/
 info.txt
 
-.zip
 API_DOCUMENTATION.md
-
 

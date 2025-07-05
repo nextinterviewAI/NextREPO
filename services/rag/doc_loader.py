@@ -1,3 +1,10 @@
+"""
+Document Loader Module
+
+This module handles loading and processing of .docx files for RAG.
+Provides semantic chunking and document preprocessing functionality.
+"""
+
 from docx import Document
 import os
 import logging
@@ -19,7 +26,8 @@ logger = logging.getLogger(__name__)
 
 def create_semantic_chunks(text: str, max_chunk_size: int = 7500) -> List[str]:
     """
-    Create semantically coherent chunks from text using NLP
+    Create semantically coherent chunks from text using NLP.
+    Uses spaCy for intelligent sentence boundary detection when available.
     """
     if not SPACY_AVAILABLE or not text.strip():
         # Fallback to simple sentence splitting
@@ -86,6 +94,7 @@ def load_docx_files(data_dir: str, chunk_size: int = 7500) -> List[Dict[str, str
 
     logger.info(f"Loading .docx files from {data_dir}")
     
+    # Process each .docx file in the directory
     for filename in os.listdir(data_dir):
         if filename.endswith(".docx"):
             file_path = os.path.join(data_dir, filename)
@@ -100,6 +109,7 @@ def load_docx_files(data_dir: str, chunk_size: int = 7500) -> List[Dict[str, str
 
                 logger.info(f"Processing {filename} - creating {num_chunks} semantic chunks")
                 
+                # Add each chunk to documents list
                 for i, chunk in enumerate(semantic_chunks):
                     if not is_valid_for_embedding(chunk):
                         logger.warning(f"Skipping oversized chunk from {filename}")

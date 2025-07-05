@@ -1,3 +1,10 @@
+"""
+Feedback Generation Service
+
+This module provides AI-powered feedback generation for interview sessions.
+Analyzes conversation history and provides personalized feedback with recommendations.
+"""
+
 from services.llm.utils import (
     MODEL_NAME, client, retry_with_backoff, safe_strip, parse_json_response, get_fallback_feedback
 )
@@ -8,7 +15,12 @@ logger = logging.getLogger(__name__)
 
 @retry_with_backoff
 async def get_feedback(conversation: List[Dict[str, Any]], user_name: str, previous_attempt: dict = None, personalized_guidance: str = None, user_patterns: Any = None) -> dict:
+    """
+    Generate comprehensive feedback for interview session.
+    Uses conversation history and user patterns for personalized feedback.
+    """
     try:
+        # Format conversation for analysis
         formatted = "\n".join([
             f"Interviewer: {turn.get('question', '')}\nCandidate: {turn.get('answer', '')}"
             for turn in conversation
@@ -17,10 +29,11 @@ async def get_feedback(conversation: List[Dict[str, Any]], user_name: str, previ
         name_reference = f"{user_name}" if user_name else "the candidate"
         extra_context = ""
         
+        # Add previous attempt context if available
         if previous_attempt:
             extra_context += f"The candidate previously attempted this question. Their answer was: {previous_attempt.get('answer', '')}. The result was: {previous_attempt.get('result', '')}. The output was: {previous_attempt.get('output', '')}. Please naturally incorporate this information into your feedback, comparing the current and previous attempts if relevant.\n"
         
-        # Enhanced personalization context
+        # Build personalized context from user patterns
         if personalized_guidance or user_patterns:
             extra_context += "PERSONALIZATION CONTEXT - Use this to tailor your feedback specifically to this candidate:\n"
             
@@ -30,14 +43,14 @@ async def get_feedback(conversation: List[Dict[str, Any]], user_name: str, previ
                 extra_context += f"- Recent topics: {', '.join(patterns.get('recent_topics', []))}\n"
                 extra_context += f"- Performance trend (last 5): {patterns.get('performance_trend', [])}\n"
                 
-                # Topic-specific performance
+                # Add topic-specific performance data
                 if patterns.get('topic_specific_performance'):
                     topic_perf = patterns['topic_specific_performance']
                     if topic_perf.get('scores'):
                         avg_topic = sum(topic_perf['scores']) / len(topic_perf['scores'])
                         extra_context += f"- Topic-specific average: {avg_topic:.1f}/10\n"
                 
-                # Question-specific history
+                # Add question-specific history
                 if patterns.get('question_specific_history'):
                     q_history = patterns['question_specific_history']
                     extra_context += f"- Previous attempt at this question: Result {q_history.get('previous_result', 'N/A')}\n"
@@ -48,7 +61,7 @@ async def get_feedback(conversation: List[Dict[str, Any]], user_name: str, previ
                 if patterns.get('common_weaknesses'):
                     extra_context += f"- Areas needing improvement: {', '.join(patterns['common_weaknesses'][:3])}\n"
                 
-                # Response patterns
+                # Add response pattern analysis
                 avg_length = patterns.get('avg_response_length', 0)
                 if avg_length > 0:
                     extra_context += f"- Average response length: {avg_length:.0f} words\n"
@@ -60,7 +73,7 @@ async def get_feedback(conversation: List[Dict[str, Any]], user_name: str, previ
             
             extra_context += "IMPORTANT: Reference these patterns in your feedback. Connect current performance to past trends. Be specific about how they're improving or repeating patterns. Use the performance trend and topic-specific data to provide targeted advice.\n\n"
 
-        # Pre-check for gibberish or empty answers
+        # Check for poor quality answers and return early feedback
         all_answers = [turn.get('answer', '').strip() for turn in conversation]
         if all(not ans or len(ans.split()) < 3 for ans in all_answers):
             return {
@@ -71,6 +84,7 @@ async def get_feedback(conversation: List[Dict[str, Any]], user_name: str, previ
                 "metrics": {}
             }
 
+        # Build comprehensive feedback prompt
         prompt = f"""
 Based on the following interview conversation with {name_reference}, provide intelligent, contextual feedback in JSON format.
 
@@ -122,6 +136,7 @@ Return only valid JSON with structure:
 }}
 """
 
+        # Generate feedback using AI
         response = await client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
@@ -135,6 +150,7 @@ Return only valid JSON with structure:
 
         content = safe_strip(getattr(response.choices[0].message, 'content', None))
         
+        # Parse and validate response
         parsed_response = parse_json_response(content, get_fallback_feedback(user_name))
         
         # Ensure 'metrics' field is always present

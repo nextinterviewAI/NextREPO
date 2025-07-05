@@ -1,66 +1,47 @@
-aiohappyeyeballs==2.6.1
-aiohttp==3.12.13
-aiosignal==1.3.2
-annotated-types==0.7.0
-anyio==3.7.1
-attrs==25.3.0
-certifi==2023.7.22
-cffi==1.17.1
-charset-normalizer==3.4.2
-click==8.1.7
-colorama==0.4.6
-dataclasses-json==0.6.7
-distro==1.9.0
-dnspython==2.7.0
+# Core FastAPI and web framework dependencies
 fastapi==0.115.13
-frozenlist==1.7.0
-greenlet==3.2.3
-grpcio==1.73.0
-h11==0.14.0
-h2==4.2.0
-hpack==4.1.0
-httpcore==0.17.3
-httpx==0.24.1
-httpx-sse==0.4.0
-hyperframe==6.1.0
-idna==3.4
-jiter==0.10.0
-jsonpatch==1.33
-jsonpointer==3.0.0
-langchain==0.3.25
-langchain-community==0.3.25
-langchain-core==0.3.65
-langchain-openai==0.3.24
-langchain-text-splitters==0.3.8
-langsmith==0.3.45
-mangum==0.17.0
+uvicorn[standard]==0.27.1
+python-multipart==0.0.9
+
+# Database dependencies
 motor==3.3.2
-multidict==6.5.0
-mypy_extensions==1.1.0
+pymongo==4.6.1
+
+# OpenAI and AI/ML dependencies
 openai==1.88.0
-orjson==3.10.18
-packaging==24.2
+tiktoken==0.9.0
+
+# Vector database
+qdrant-client==1.14.3
+
+# Document processing
+python-docx==1.1.2
+spacy==3.7.2
+
+# Data validation and serialization
 pydantic==2.11.7
 pydantic-settings==2.9.1
-pydantic_core==2.33.2
+
+# Environment and configuration
 python-dotenv==1.0.0
-spacy==3.7.2
-PyJWT==2.10.1
-pymongo==4.6.1
-python-multipart==0.0.9
-PyYAML==6.0.2
-qdrant-client==1.14.3
-regex==2024.11.6
-requests==2.32.4
-requests-toolbelt==1.0.0
-sniffio==1.3.0
-SQLAlchemy==2.0.41
-starlette==0.46.2
-tenacity==9.1.2
-tiktoken==0.9.0
-typing-inspect==0.9.0
-typing-inspection==0.4.1
-typing_extensions==4.14.0
-urllib3==2.5.0
-uvicorn==0.22.0
-yarl==1.20.1
+
+# HTTP client for API calls
+httpx==0.24.1
+
+# AWS Lambda deployment (if needed)
+mangum==0.17.0
+
+# Core Python dependencies (usually included with Python)
+# These are listed for completeness but may not need explicit installation:
+# - asyncio (built-in)
+# - logging (built-in)
+# - typing (built-in)
+# - json (built-in)
+# - os (built-in)
+# - sys (built-in)
+# - traceback (built-in)
+# - datetime (built-in)
+# - re (built-in)
+# - functools (built-in)
+# - collections (built-in)
+# - bson (comes with pymongo)
