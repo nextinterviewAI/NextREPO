@@ -5,7 +5,7 @@ from services.db import (
     add_follow_up_question, transition_to_coding_phase, save_interview_feedback,
     get_user_interview_sessions, get_personalized_context, get_user_name_from_id, get_enhanced_personalized_context
 )
-from services.llm.interview import get_next_question
+from services.interview import get_next_question
 from services.llm.feedback import get_feedback
 from services.llm.clarification import get_clarification
 from services.llm.check_answer_quality import check_answer_quality, check_single_answer_quality

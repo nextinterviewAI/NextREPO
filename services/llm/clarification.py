@@ -11,7 +11,7 @@ async def get_clarification(main_question: str, clarification_request: str) -> s
         messages = [
             ChatCompletionSystemMessageParam(
                 role="system",
-                content="Provide business-level guidance without technical jargon."
+                content="You are a senior technical interviewer providing clarification. Maintain a professional, conversational tone. Provide clear, focused guidance that helps the candidate understand the problem better without giving away the solution. Be encouraging but maintain the interview atmosphere."
             ),
             ChatCompletionUserMessageParam(
                 role="user",

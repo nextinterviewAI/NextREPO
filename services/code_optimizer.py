@@ -226,4 +226,4 @@ async def generate_optimized_code_with_summary(
         return {
             "optimized_code": get_fallback_optimized_code(),
             "optimization_summary": "No summary available."
-        }
+        } 

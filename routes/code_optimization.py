@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Body
-from services.llm import generate_optimized_code, generate_optimized_code_with_summary
+from services.code_optimizer import generate_optimized_code, generate_optimized_code_with_summary
 from models.schemas import CodeOptimizationRequest
 from services.rag.retriever_factory import get_rag_retriever
 from services.db import validate_user_id, save_user_ai_interaction

@@ -88,8 +88,19 @@ Provide intelligent, contextual feedback that:
 6. Connects feedback directly to the user's specific answers and the interview flow
 7. Considers the progression of questions and how answers build upon each other
 8. References their personal learning patterns and performance history when relevant
+9. Evaluates problem-solving ability, reasoning clarity, and technical communication
+10. Assesses awareness of trade-offs and edge case handling
+11. Considers domain-specific evaluation criteria (Python data analysis, SQL, algorithms, etc.)
 
 The feedback should feel like a real conversation with an expert who understands the interview context and is giving specific, relevant guidance.
+
+Evaluation Criteria:
+- Clarity of communication and reasoning
+- Correctness of logic and approach
+- Ability to reason under pressure
+- Awareness of trade-offs and edge cases
+- Domain-specific technical knowledge
+- Problem-solving methodology
 
 Include:
 - Summary (2-3 lines analyzing the overall interview performance in context)

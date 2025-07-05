@@ -40,7 +40,14 @@ async def check_single_answer_quality(question: str, answer: str, topic: str, ra
     try:
         prompt = f"""
 Review the following answer to the {topic} interview question.
-Respond with only 'good' if the answer is relevant and makes sense, or 'bad' if it is gibberish, empty, or irrelevant.
+Evaluate based on:
+- Clarity of communication and reasoning
+- Correctness of logic and approach
+- Ability to reason under pressure
+- Awareness of trade-offs and edge cases
+- Domain-specific technical knowledge
+
+Respond with only 'good' if the answer demonstrates clear reasoning, relevant technical knowledge, and addresses the question appropriately, or 'bad' if it is gibberish, empty, irrelevant, or lacks coherent reasoning.
 
 Question: {question}
 Answer: {answer}

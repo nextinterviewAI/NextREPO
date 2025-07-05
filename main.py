@@ -12,6 +12,10 @@ from fastapi.responses import JSONResponse
 import os
 import traceback
 import sys
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,
