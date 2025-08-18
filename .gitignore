@@ -24,15 +24,9 @@ var/
 venv/
 ENV/
 
-# Environment variables
-.env
-
-Dockerfile
 # IDE
 .idea/
 .vscode/
 
 # Logs
 *.log 
-
-API_DOCUMENTATION.md
