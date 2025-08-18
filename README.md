@@ -1,4 +1,4 @@
-# NextInterview AI - AI-Powered Mock Interview System
+# NextInterview AI 
 
 ## Project Structure
 
@@ -122,40 +122,3 @@ python main.py
 - **Swagger UI**: http://localhost:8000/docs
 - **ReDoc**: http://localhost:8000/redoc
 - **Health Check**: http://localhost:8000/health
-
-## Key Features
-
-### Enhanced Answer Quality Validation
-- All answers are validated using AI-powered quality checks
-- Gibberish, nonsensical, or off-topic answers are rejected
-- System prevents progression until meaningful answers are provided
-- Maximum clarification limits prevent infinite loops
-
-### RAG System
-- Qdrant-based vector database for efficient document retrieval
-- Automatic document processing and embedding generation
-- Context-aware interview responses
-- Support for multiple document formats (DOCX, PDF, etc.)
-
-### Interview Flow Management
-- Dynamic interview progression based on user responses
-- Intelligent follow-up question generation
-- Support for both questioning and coding phases
-- Session persistence and user history tracking
-
-## Development
-
-The system is built with a modular architecture:
-- **Services**: Business logic separated into focused modules
-- **Routes**: Clean API endpoint definitions
-- **Database**: Async MongoDB operations with proper indexing
-- **RAG**: Factory pattern for retriever management
-- **LLM**: Structured prompt management and response handling
-
-## Contributing
-
-1. Follow the existing code structure and patterns
-2. Add proper error handling and logging
-3. Update documentation for new features
-4. Ensure all endpoints have proper validation
-5. Test with the provided verification scripts
