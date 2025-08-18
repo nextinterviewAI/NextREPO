@@ -24,36 +24,43 @@ You are a **senior MySQL performance engineer**. This SQL query has performance 
 **TABLE STRUCTURE:** {sample_input}
 
 **PERFORMANCE ISSUES TO FIX:**
-1. **INEFFICIENT SUBQUERY**: The IN clause with subquery can be slow and may not use indexes properly
+1. **INEFFICIENT SUBQUERIES**: IN clauses with subqueries can be slow and may not use indexes properly
 2. **MULTIPLE EXECUTIONS**: Subquery might be executed multiple times
 3. **POOR INDEXING**: Complex subqueries often don't leverage indexes effectively
+4. **OFFSET PERFORMANCE**: LIMIT/OFFSET can be slow on large datasets
+5. **NESTED QUERIES**: Deeply nested queries can cause performance bottlenecks
 
 **REQUIRED OPTIMIZATIONS:**
-1. **REPLACE IN + SUBQUERY** with JOIN-based approach for better performance
-2. **USE CTE (Common Table Expression)** or derived table for the top 3 departments
-3. **IMPROVE READABILITY** with proper formatting and table aliases
-4. **ADD COMMENTS** explaining the performance improvements
+1. **REPLACE INEFFICIENT PATTERNS** with JOIN-based approaches where applicable
+2. **USE CTEs (Common Table Expressions)** or derived tables for complex logic
+3. **IMPROVE READABILITY** with proper formatting, indentation, and table aliases
+4. **ADD CONCISE COMMENTS** at the end explaining key improvements
 5. **MUST BE DIFFERENT** from the original query structure
+6. **OPTIMIZE FOR INDEXES** by restructuring WHERE clauses and JOINs
 
 **OPTIMIZATION APPROACH:**
-- Use WITH clause or derived table to get top 3 departments first
-- JOIN this result with employees table
+- Analyze the query structure and identify performance bottlenecks
+- Replace subqueries with JOINs where beneficial
+- Use CTEs for complex aggregations or ranking operations
 - Ensure proper indexing considerations
-- Add clear optimization comments
+- Add brief optimization comments at the end
+- Maintain exact same results while improving performance
 
 **OUTPUT FORMAT (JSON only):**
 {{
-"optimized_code": "complete optimized SQL query with performance improvements and comments"
+"optimized_code": "complete optimized SQL query with brief optimization comments at the end"
 }}
 
-**CRITICAL:** Return a COMPLETELY DIFFERENT query structure that eliminates the performance issues.
+**CRITICAL:** Return a COMPLETELY DIFFERENT query structure that eliminates the performance issues while maintaining the same results. Keep comments concise and place them at the end.
 """
 
     else:  # Python
         return f"""
-You are a **Senior Python Code Optimization Expert**. Optimize this Python code for performance, readability, and best practices.
+You are a **Senior Python Code Optimization Expert**. You MUST return Python code only.
 
-**ORIGINAL CODE:**
+**IMPORTANT: This is PYTHON code optimization. Return ONLY Python code, NOT SQL.**
+
+**ORIGINAL PYTHON CODE:**
 ```python
 {user_code}
 ```
@@ -63,25 +70,31 @@ You are a **Senior Python Code Optimization Expert**. Optimize this Python code 
 **EXPECTED INPUT:** {sample_input}
 **EXPECTED OUTPUT:** {sample_output}
 
-**REQUIREMENTS:**
-1. **MUST CHANGE** the code structure, formatting, or organization
+**PYTHON OPTIMIZATION REQUIREMENTS:**
+1. **MUST CHANGE** the Python code structure, formatting, or organization
 2. **PRESERVE** exact functionality and outputs
 3. **IMPROVE** readability and performance
-4. **ADD COMMENTS** explaining what optimizations were made
+4. **ADD CONCISE COMMENTS** at the end explaining key optimizations
 5. **RETURN COMPLETE** executable Python code
+6. **MUST BE PYTHON** - no SQL, no other languages
 
-**OPTIMIZATION FOCUS:**
+**PYTHON OPTIMIZATION FOCUS:**
 - Better variable names and structure
-- PEP8 compliance
-- Performance improvements
-- Code organization
-- Clear documentation
+- PEP8 compliance and Python best practices
+- Performance improvements (use sets, dict.fromkeys, list comprehensions)
+- Code organization and readability
+- Clear documentation and docstrings
+- Python-specific optimizations (avoid O(n²) operations)
 
 **OUTPUT FORMAT (JSON only):**
 {{
-"optimized_code": "complete optimized Python code with optimization comments"
+"optimized_code": "complete optimized Python code with brief optimization comments at the end"
 }}
 
-**CRITICAL:** Return the FULL optimized Python code, not just comments.
+**CRITICAL:** 
+- Return ONLY Python code, NOT SQL
+- The result MUST be executable Python code
+- Include proper Python syntax, indentation, and structure
+- Add concise Python-style comments (#) at the end, not throughout the code
+- Keep comments brief but informative
 """
-

@@ -36,6 +36,13 @@ async def generate_optimized_code(
         # Detect language
         language = detect_language(user_code)
         logger.info(f"Detected language: {language}")
+        logger.info(f"Original code preview: {user_code[:200]}...")
+        
+        # Validate language detection makes sense
+        if "def " in user_code and "for " in user_code and language != "python":
+            logger.warning(f"Language detection may be wrong! Code contains Python keywords but detected as {language}")
+        elif "SELECT" in user_code.upper() and "FROM" in user_code.upper() and language != "sql":
+            logger.warning(f"Language detection may be wrong! Code contains SQL keywords but detected as {language}")
         
         # First attempt with standard prompt
         result = await _attempt_optimization(
@@ -92,7 +99,7 @@ async def _attempt_optimization(
         response = await client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
-            max_completion_tokens=2000,  # Increased from 1000 to ensure complete responses
+            max_completion_tokens=2000,  
             response_format={"type": "json_object"}
         )
 

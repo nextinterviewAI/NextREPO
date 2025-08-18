@@ -25,15 +25,15 @@ def detect_language(code: str) -> str:
     cleaned_code = _clean_code_for_detection(code)
     logger.info(f"Cleaned code length: {len(cleaned_code)}")
     
-    # Check for obvious SQL patterns first
-    if _is_definitely_sql(cleaned_code):
-        logger.info("Code identified as definitely SQL")
-        return "sql"
-    
-    # Check for obvious Python patterns
+    # Check for obvious Python patterns first (since Python is more common)
     if _is_definitely_python(cleaned_code):
         logger.info("Code identified as definitely Python")
         return "python"
+    
+    # Check for obvious SQL patterns
+    if _is_definitely_sql(cleaned_code):
+        logger.info("Code identified as definitely SQL")
+        return "sql"
     
     # If still unclear, do a weighted analysis
     logger.info("Language not obvious, performing weighted analysis")
@@ -83,7 +83,7 @@ def _is_definitely_sql(code: str) -> bool:
         r'\bHAVING\b',
         r'\bUNION\b',
         r'\bEXISTS\b',
-        r'\bIN\s*\(',
+        r'\bIN\s*\([^)]*\)',  # More specific: IN followed by parentheses with content
         r'\bBETWEEN\b',
         r'\bAS\b',
         r'\bON\b',
