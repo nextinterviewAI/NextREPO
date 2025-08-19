@@ -19,86 +19,118 @@ class ApproachAnalysisService:
     Provides personalized feedback based on user history and patterns.
     """
     
-    def __init__(self):
+    def __init__(self, use_rag: bool = False):
         self.client = client
-        logger.info("ApproachAnalysisService using shared OpenAI client")
+        self.use_rag = use_rag  # Make RAG optional for performance
+        logger.info(f"ApproachAnalysisService initialized with RAG: {use_rag}")
 
-    async def _get_context(self, question: str, top_k: int = 2) -> str:
+    async def _get_context(self, question: str, top_k: int = 1) -> str:
         """
         Retrieve relevant context from RAG system for question analysis.
-        Optimized for performance with reduced top_k.
+        Optimized for performance with minimal top_k and optional usage.
         """
         try:
+            # Make RAG optional for faster responses
+            if not hasattr(self, 'use_rag') or not self.use_rag:
+                return ""
+            
             retriever = await get_rag_retriever()
             if retriever is None:
                 logger.warning("RAGRetriever not initialized")
                 return ""
             
-            # Use smaller top_k for better performance
+            # Use minimal top_k for better performance
             context_chunks = await retriever.retrieve_context(question, top_k=top_k)
             
             # Limit context length for better performance
             context = "\n\n".join(context_chunks)
-            if len(context) > 1000:  # Limit context to 1000 characters
-                context = context[:1000] + "..."
+            if len(context) > 500:  # Reduced from 1000 to 500 characters
+                context = context[:500] + "..."
             
             return context
         except Exception as e:
             logger.error(f"Error retrieving context: {str(e)}")
             return ""
 
+    async def _get_user_name_from_db(self, user_id: str) -> str:
+        """
+        Fetch user's name from the users collection.
+        Returns the user_name field or 'Candidate' as fallback.
+        """
+        try:
+            from services.db import get_db
+            db = await get_db()
+            
+            # Try to find user by ObjectId first, then by string
+            try:
+                from bson import ObjectId
+                object_id = ObjectId(user_id)
+                user = await db.users.find_one({"_id": object_id})
+            except:
+                user = await db.users.find_one({"_id": user_id})
+            
+            if user and user.get("user_name"):
+                logger.info(f"Found user name: {user['user_name']} for user_id: {user_id}")
+                return user["user_name"]
+            else:
+                logger.warning(f"User name not found for user_id: {user_id}")
+                return "Candidate"
+                
+        except Exception as e:
+            logger.error(f"Error fetching user name from database: {str(e)}")
+            return "Candidate"
+
     @retry_with_backoff
-    async def analyze_approach(self, question: str, user_answer: str, user_name: str = None, previous_attempt: dict = None, personalized_guidance: str = None, user_patterns: Any = None) -> Dict[str, Any]: # type: ignore
+    async def analyze_approach(self, question: str, user_answer: str, user_name: str = None, previous_attempt: dict = None, personalized_guidance: str = None, user_patterns: Any = None, user_id: str = None) -> Dict[str, Any]: # type: ignore
         """
         Analyze user's approach to a question and provide personalized feedback.
         Uses user history and patterns to tailor the analysis. 
         """
         try: 
+            # Get user's name from database if not provided
+            if not user_name and user_id:
+                user_name = await self._get_user_name_from_db(user_id)
+            
             # Get relevant context from RAG system (reduced top_k for performance)
             context = await self._get_context(question, top_k=2)
 
             # Build personalized context from user history (optimized)
             extra_context = self._build_optimized_context(
-                previous_attempt, personalized_guidance, user_patterns
+                previous_attempt, personalized_guidance, user_patterns, user_name
             )
 
-            # Build final prompt with personalized context (optimized)
+            # Build final prompt with personalized context (optimized and concise)
             name_reference = f"{user_name}" if user_name else "the candidate"
             prompt = f"""
-You are an expert data science and AI interviewer evaluating {name_reference}'s approach to a technical question.
+Expert interviewer evaluating {name_reference}'s approach.
 
 {extra_context}
 
-IMPORTANT: Use the personalization data above to tailor your feedback specifically to this candidate's demonstrated patterns, strengths, and weaknesses. Reference their performance history and learning patterns throughout your evaluation.
+SCORING CRITERIA (1-10 scale):
+- 9-10: Excellent - Complete, clear, well-structured, shows deep understanding
+- 7-8: Good - Solid understanding, minor gaps, mostly clear explanation
+- 5-6: Fair - Basic understanding, some gaps, needs improvement
+- 3-4: Poor - Limited understanding, significant gaps, unclear
+- 1-2: Very Poor - Minimal understanding, major gaps, incorrect approach
 
-Your Evaluation Framework:
+Evaluation Framework:
+1. Structure & Clarity: Did they break down the problem logically?
+2. What Was Missing: What critical step/concept was not covered?
+3. Blind Spots: Subtle but important things they missed?
+4. Historical Tracking: Did they improve or repeat mistakes? (N/A if none)
+5. Interview Variations: Suggest 1-2 variations and adaptations needed
+6. Final Tip: One actionable coaching insight for future questions
 
-### 1. Structure & Clarity  
-- Did they break down the problem logically and clearly?  
-- Did they show a step-by-step approach or just brainstorm loosely?  
+IMPORTANT SCORING GUIDELINES:
+- Give credit for understanding the approach even if execution is incomplete
+- A score of 5-6 is appropriate for someone who understands the concept but doesn't fully execute
+- A score of 7-8 is appropriate for someone who shows good understanding with minor gaps
+- Be encouraging while honest - focus on what they did well and how to improve
+- Use the candidate's name naturally in feedback to make it more personal and engaging
 
-### 2. 🚫 What Was Missing  
-- What critical step or concept was not covered?  
-- Only include what would be considered a key miss in an actual interview.  
-
-### 3. 👁️ Blind Spots  
-- Subtle but important things they missed that top candidates usually catch.  
-- These often cost candidates the offer.  
-
-### 4. Historical Tracking  
-- Based on past attempts, did they improve or repeat the same mistakes?  
-- If none apply, say "N/A".  
-
-### 5. Interview Variations  
-- Suggest 1–2 variations and how their approach would need to adapt.  
-
-### 6. Final Interview Tip  
-- End with a crisp, interview-specific coaching insight they can apply to future questions.  
-
-Current Question: {question}
-Candidate's Response: {user_answer}
-
-Context: {context}
+Question: {question}
+Response: {user_answer}
+Context: {context[:200] if context else ""}
 
 Return ONLY valid JSON:
 {{
@@ -109,15 +141,13 @@ Return ONLY valid JSON:
 }}
 """
 
-            # Generate analysis using AI (reduced max_tokens for performance)
+            # Generate analysis using AI (optimized for performance)
             response = await self.client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[
-                    {"role": "system", "content": f"You are an expert interviewer providing intelligent, contextual feedback for {name_reference}. Use the provided personalization data to tailor your feedback. Reference their specific strengths, weaknesses, and performance patterns."},
+                    {"role": "system", "content": f"Expert interviewer providing constructive feedback for {name_reference}. Be encouraging while honest. Focus on strengths first, then areas for improvement. Use personalization data to tailor feedback. Score fairly based on understanding, not just execution. IMPORTANT: Use the candidate's name naturally throughout the feedback to make it more personal and engaging."},
                     {"role": "user", "content": prompt}
-                ],
-                temperature=0.7,
-                max_tokens=800  # Reduced from 1000 for better performance
+                ]
             )
 
             content = safe_strip(getattr(response.choices[0].message, 'content', None))
@@ -131,11 +161,15 @@ Return ONLY valid JSON:
             logger.error(f"Error analyzing approach: {str(e)}")
             return get_fallback_analysis()
     
-    def _build_optimized_context(self, previous_attempt: dict = None, personalized_guidance: str = None, user_patterns: Any = None) -> str:
+    def _build_optimized_context(self, previous_attempt: dict = None, personalized_guidance: str = None, user_patterns: Any = None, user_name: str = None) -> str:
         """
         Build optimized context string to reduce prompt length and improve performance.
         """
         extra_context = ""
+        
+        # Add personalized greeting if user name is available
+        if user_name:
+            extra_context += f"Personalized Context for {user_name}:\n"
         
         if previous_attempt:
             extra_context += f"Previous attempt: Answer: {previous_attempt.get('answer', '')[:100]}... Result: {previous_attempt.get('result', '')}. Output: {previous_attempt.get('output', '')[:100]}...\n"

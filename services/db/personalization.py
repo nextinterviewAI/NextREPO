@@ -6,9 +6,14 @@ Provides functions for analyzing user behavior and generating personalized guida
 """
 
 import logging
+import time
 from collections import Counter
 from .database import get_db
 from .user_interactions import get_user_interaction_history
+
+# Simple in-memory cache for user patterns (5 minute TTL)
+_pattern_cache = {}
+_cache_ttl = 300  # 5 minutes
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +23,8 @@ async def get_enhanced_personalized_context(user_id: str, current_topic: str = N
     Analyzes patterns and generates personalized guidance for interviews.
     """
     try:
-        # Get recent interactions (reduced from 15 to 10 for better performance)
-        recent_interactions = await get_user_interaction_history(user_id, limit=10)
+        # Get recent interactions (reduced from 15 to 6 for better performance)
+        recent_interactions = await get_user_interaction_history(user_id, limit=6)
         
         # Get progress data if question_id provided
         progress_data = None
@@ -28,7 +33,7 @@ async def get_enhanced_personalized_context(user_id: str, current_topic: str = N
             progress_data = await check_question_answered_by_id(user_id, question_id)
         
         # Extract patterns from interactions
-        patterns = await extract_interaction_patterns(recent_interactions, current_topic)
+        patterns = await extract_interaction_patterns(recent_interactions, current_topic, user_id)
         
         # Add progress data if available
         if progress_data and progress_data.get("success"):
@@ -49,12 +54,19 @@ async def get_enhanced_personalized_context(user_id: str, current_topic: str = N
         logger.error(f"Error getting enhanced personalized context: {str(e)}", exc_info=True)
         return {"user_patterns": {}, "personalized_guidance": ""}
 
-async def extract_interaction_patterns(interactions: list, current_topic: str = None):
+async def extract_interaction_patterns(interactions: list, current_topic: str = None, user_id: str = None):
     """
     Extract patterns from user interactions efficiently.
     Analyzes performance trends, weaknesses, strengths, and usage patterns.
     """
     try:
+        # Check cache first for performance
+        if user_id and user_id in _pattern_cache:
+            cache_entry = _pattern_cache[user_id]
+            if cache_entry["expires"] > time.time():
+                logger.info(f"Using cached patterns for user {user_id}")
+                return cache_entry["data"]
+        
         patterns = {
             "recent_topics": [],
             "performance_trend": [],
@@ -72,7 +84,7 @@ async def extract_interaction_patterns(interactions: list, current_topic: str = 
         response_lengths = []
         
         # Analyze each interaction (optimized for performance)
-        for interaction in interactions[:8]:  # Limit to 8 interactions for better performance
+        for interaction in interactions[:4]:  # Limit to 4 interactions for better performance
             endpoint = interaction.get("endpoint", "")
             patterns["endpoint_usage"][endpoint] = patterns["endpoint_usage"].get(endpoint, 0) + 1
             
@@ -148,6 +160,14 @@ async def extract_interaction_patterns(interactions: list, current_topic: str = 
         # Add total sessions count
         patterns["total_sessions"] = total_sessions
         
+        # Cache the results for future use
+        if user_id:
+            _pattern_cache[user_id] = {
+                "data": patterns,
+                "expires": time.time() + _cache_ttl
+            }
+            logger.info(f"Cached patterns for user {user_id}")
+        
         return patterns
     except Exception as e:
         logger.error(f"Error extracting interaction patterns: {str(e)}", exc_info=True)
@@ -162,46 +182,46 @@ def generate_enhanced_guidance(patterns: dict, user_name: str = None):
         guidance_parts = []
         name_reference = f"{user_name}" if user_name else "You"
         
-        # Performance trend analysis
+        # Performance trend analysis (more encouraging)
         if patterns.get("performance_trend"):
             recent_scores = patterns["performance_trend"]
             if len(recent_scores) >= 3:
                 avg_recent = sum(recent_scores[-3:]) / 3
                 if avg_recent > patterns.get("average_score", 0):
-                    guidance_parts.append(f"Your recent performance shows improvement, with an average score of {avg_recent:.1f}/10 in your last 3 sessions.")
+                    guidance_parts.append(f"🎉 Excellent progress, {name_reference}! Your recent performance shows improvement, with an average score of {avg_recent:.1f}/10 in your last 3 sessions.")
                 elif avg_recent < patterns.get("average_score", 0):
-                    guidance_parts.append(f"Your recent performance has been below your average. Focus on consistency and review your approach.")
+                    guidance_parts.append(f"Keep pushing forward, {name_reference}! Your recent performance has been below your average. Focus on consistency and review your approach - you've got this!")
         
-        # Topic-specific guidance
+        # Topic-specific guidance (more encouraging)
         if patterns.get("topic_specific_performance"):
             topic_perf = patterns["topic_specific_performance"]
             if topic_perf.get("scores"):
                 avg_topic_score = sum(topic_perf["scores"]) / len(topic_perf["scores"])
                 if avg_topic_score < 5:
-                    guidance_parts.append(f"In this topic area, you've averaged {avg_topic_score:.1f}/10. Consider reviewing fundamental concepts.")
+                    guidance_parts.append(f"In this topic area, {name_reference}, you've averaged {avg_topic_score:.1f}/10. This is a great opportunity to review fundamental concepts and build a stronger foundation!")
                 elif avg_topic_score > 7:
-                    guidance_parts.append(f"You're performing well in this topic area with an average of {avg_topic_score:.1f}/10. Build on this strength.")
+                    guidance_parts.append(f"🌟 Outstanding work, {name_reference}! You're performing excellently in this topic area with an average of {avg_topic_score:.1f}/10. Keep building on this strength!")
         
-        # Response length guidance
+        # Response length guidance (more encouraging)
         avg_length = patterns.get("avg_response_length", 0)
         if avg_length < 20:
-            guidance_parts.append("Your responses tend to be brief. Consider providing more detailed explanations to demonstrate your understanding.")
+            guidance_parts.append(f"Your responses are concise, {name_reference} - great for time management! Consider adding a bit more detail to showcase your full understanding.")
         elif avg_length > 100:
-            guidance_parts.append("Your responses are comprehensive. Consider being more concise while maintaining clarity.")
+            guidance_parts.append(f"Your responses are thorough and comprehensive, {name_reference} - excellent! Consider being more concise while keeping that valuable detail.")
         
-        # Completion rate guidance
+        # Completion rate guidance (more encouraging)
         completion_rate = patterns.get("completion_rate", 0)
         if completion_rate < 0.5:
-            guidance_parts.append("You often don't complete interview sessions. Try to finish more sessions to build consistency and confidence.")
+            guidance_parts.append(f"Completing more interview sessions will help build your confidence and consistency, {name_reference}. You're doing great - let's finish strong!")
         
-        # Weaknesses and strengths
+        # Weaknesses and strengths (more constructive tone)
         if patterns.get("common_weaknesses"):
             weaknesses = ', '.join(patterns['common_weaknesses'][:2])
-            guidance_parts.append(f"Areas for improvement: {weaknesses}")
+            guidance_parts.append(f"Focus areas for growth, {name_reference}: {weaknesses}. These are opportunities to strengthen your interview skills.")
         
         if patterns.get("strengths"):
             strengths = ', '.join(patterns['strengths'][:2])
-            guidance_parts.append(f"Your strengths: {strengths}. Continue leveraging these.")
+            guidance_parts.append(f"Your strengths, {name_reference}: {strengths}. Keep building on these solid foundations.")
         
         return " ".join(guidance_parts)
     except Exception as e:

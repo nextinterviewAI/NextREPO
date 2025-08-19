@@ -16,7 +16,8 @@ import time
 
 router = APIRouter(tags=["Approach Analysis"])
 
-analysis_service = ApproachAnalysisService()
+# Initialize with RAG disabled for better performance (can be enabled via config)
+analysis_service = ApproachAnalysisService(use_rag=False)
 
 @router.post("/analyze-approach")
 async def analyze_approach(request: ApproachAnalysisRequest):
@@ -33,35 +34,42 @@ async def analyze_approach(request: ApproachAnalysisRequest):
         raise HTTPException(status_code=404, detail="User not found")
     
     try:
-        # Parallelize database calls for better performance
+        # Parallelize ALL database calls for maximum performance
         user_name_task = get_user_name_from_history(request.user_id)
         progress_data_task = None
         if getattr(request, "question_id", None):
             progress_data_task = check_question_answered_by_id(request.user_id, request.question_id)
         
-        # Execute database calls in parallel
+        # Execute ALL database calls in parallel (including personalization)
         db_start = time.time()
+        personalized_context_task = get_enhanced_personalized_context(
+            request.user_id, 
+            user_name=None,  # Will be filled later
+            question_id=getattr(request, "question_id", None)
+        )
+        
         if progress_data_task:
-            user_name, progress_data = await asyncio.gather(
+            user_name, progress_data, personalized_context = await asyncio.gather(
                 user_name_task, 
-                progress_data_task
+                progress_data_task,
+                personalized_context_task
             )
         else:
-            user_name = await user_name_task
+            user_name, personalized_context = await asyncio.gather(
+                user_name_task, 
+                personalized_context_task
+            )
             progress_data = None
         
         db_time = time.time() - db_start
-        logger.info(f"Database calls completed in {db_time:.2f}s")
+        logger.info(f"All database calls completed in {db_time:.2f}s")
         
-        # Get personalized context (this includes its own database calls)
-        context_start = time.time()
-        personalized_context = await get_enhanced_personalized_context(
-            request.user_id, 
-            user_name=user_name,
-            question_id=getattr(request, "question_id", None)
-        )
-        context_time = time.time() - context_start
-        logger.info(f"Personalization context completed in {context_time:.2f}s")
+        # Update personalized context with user_name (since it was None during parallel call)
+        if user_name and personalized_context.get("personalized_guidance"):
+            # Re-generate guidance with user_name for better personalization
+            from services.db.personalization import generate_enhanced_guidance
+            user_patterns = personalized_context.get("user_patterns", {})
+            personalized_context["personalized_guidance"] = generate_enhanced_guidance(user_patterns, user_name)
         
         # Log context for debugging
         logger.info(f"personalized_guidance: {personalized_context['personalized_guidance']}")
@@ -87,7 +95,8 @@ async def analyze_approach(request: ApproachAnalysisRequest):
             user_name=user_name,
             previous_attempt=previous_attempt,
             personalized_guidance=personalized_guidance,
-            user_patterns=personalized_context["user_patterns"] if "user_patterns" in personalized_context else None
+            user_patterns=personalized_context["user_patterns"] if "user_patterns" in personalized_context else None,
+            user_id=request.user_id  # Pass user_id for name lookup
         )
         analysis_time = time.time() - analysis_start
         logger.info(f"AI analysis completed in {analysis_time:.2f}s")
@@ -119,7 +128,7 @@ async def analyze_approach(request: ApproachAnalysisRequest):
             logger.error(f"Failed to save user-AI interaction for user_id={request.user_id}: {e}", exc_info=True)
         
         total_time = time.time() - start_time
-        logger.info(f"Total approach analysis completed in {total_time:.2f}s (DB: {db_time:.2f}s, Context: {context_time:.2f}s, AI: {analysis_time:.2f}s)")
+        logger.info(f"Total approach analysis completed in {total_time:.2f}s (DB: {db_time:.2f}s, AI: {analysis_time:.2f}s)")
         
         return documented_response
         

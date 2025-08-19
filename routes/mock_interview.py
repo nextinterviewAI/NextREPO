@@ -4,12 +4,11 @@ Mock Interview API Routes
 This module contains all the API endpoints for the AI-powered mock interview system.
 It handles interview initialization, answer submission, feedback generation, and user session management.
 
-ENHANCED ANSWER QUALITY VALIDATION:
-- All answers are now validated using the enhanced check_single_answer_quality function
-- Gibberish, nonsensical, or off-topic answers are rejected
-- System prevents progression until meaningful answers are provided
-- Maximum clarification limits prevent infinite loops
-- Professional feedback guides users to provide better responses
+PURE LLM APPROACH:
+- All interview logic is now handled by the InterviewOrchestrator
+- Separate flows for coding and non-coding interviews
+- No hardcoded rules or complex flow logic
+- LLM makes all decisions about progression, quality, and next actions
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Body
@@ -19,7 +18,7 @@ from services.db import (
     get_available_modules
 )
 from services.interview_initialization import InterviewInitializer
-from services.interview_flow import InterviewFlowManager
+from services.interview_orchestrator import InterviewOrchestrator, CodingPhaseOrchestrator
 from services.feedback_service import FeedbackService
 from services.user_session_service import UserSessionService
 from models.schemas import InterviewInit, AnswerRequest, ClarificationRequest
@@ -35,7 +34,7 @@ router = APIRouter(tags=["Mock Interview"])
 async def init_interview(init_data: InterviewInit):
     """
     Initialize a new mock interview session.
-    Creates session with base question, generates first follow-up, and stores in database.
+    Creates session with base question, generates personalized first follow-up, and stores in database.
     Uses module_code to fetch random questions.
     """
     try:
@@ -53,8 +52,8 @@ async def init_interview(init_data: InterviewInit):
 async def submit_answer(answer_request: AnswerRequest = Body(...)):
     """
     Submit user's answer during interview session.
-    Handles both questioning and coding phases, generates follow-up questions or transitions to coding.
-    Supports both coding and approach interview types.
+    Uses pure LLM approach to determine next action.
+    Handles both coding and approach interview types with separate flows.
     """
     try:
         session_id = answer_request.session_id
@@ -65,23 +64,18 @@ async def submit_answer(answer_request: AnswerRequest = Body(...)):
         
         session_data = session["meta"]["session_data"]
         current_phase = session_data["current_phase"]
+        interview_type = session_data.get("interview_type", "approach")
         
-        # Handle coding phase
+        # Handle coding phase separately
         if current_phase == "coding":
             return await _handle_coding_phase(answer_request, session, session_data)
         
-        # Update session with user's answer
-        await update_interview_session_answer(session_id, answer_request.answer, False)
-        
-        # Get RAG context
-        rag_context = await _get_rag_context(session_data["topic"])
-        
-        # Process answer using flow manager
-        flow_manager = InterviewFlowManager(session_data, session_id)
-        result = await flow_manager.process_answer(answer_request.answer, rag_context)
+        # Use pure LLM orchestrator for verbal phase
+        orchestrator = InterviewOrchestrator(session_id)
+        result = await orchestrator.process_answer(answer_request.answer)
         
         # Add language field for coding interviews if needed
-        if session_data.get("interview_type") == "coding" and "language" not in result:
+        if interview_type == "coding" and "language" not in result:
             result["language"] = session["ai_response"].get("language", "")
         
         return result
@@ -93,11 +87,11 @@ async def submit_answer(answer_request: AnswerRequest = Body(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 async def _handle_coding_phase(answer_request: AnswerRequest, session: dict, session_data: dict) -> dict:
-    """Handle coding phase logic."""
+    """Handle coding phase logic using separate orchestrator."""
     if answer_request.clarification:
         # Handle clarification request
-        flow_manager = InterviewFlowManager(session_data, answer_request.session_id)
-        result = await flow_manager.handle_coding_phase(answer_request.answer, True)
+        coding_orchestrator = CodingPhaseOrchestrator(answer_request.session_id)
+        result = await coding_orchestrator.handle_clarification(answer_request.answer)
         
         # Update session with clarification count
         if "clarification_count" in result:
@@ -117,25 +111,8 @@ async def _handle_coding_phase(answer_request: AnswerRequest, session: dict, ses
         return result
     else:
         # Handle final code submission
-        await update_interview_session_answer(answer_request.session_id, answer_request.answer, False)
-        
-        # Mark session as completed
-        session_data["status"] = "completed"
-        session_data["current_phase"] = "completed"
-        
-        from services.db import get_db
-        db = await get_db()
-        await db.user_ai_interactions.update_one(
-            {"session_id": answer_request.session_id},
-            {
-                "$set": {
-                    "meta.session_data": session_data,
-                    "timestamp": datetime.utcnow()
-                }
-            }
-        )
-        
-        return {"message": "Code submitted successfully. You can now generate feedback."}
+        coding_orchestrator = CodingPhaseOrchestrator(answer_request.session_id)
+        return await coding_orchestrator.handle_code_submission(answer_request.answer)
 
 async def _get_rag_context(topic: str) -> str:
     """Get RAG context for the given topic."""

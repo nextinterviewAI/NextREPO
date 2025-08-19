@@ -1,0 +1,532 @@
+"""
+Interview Orchestrator Service
+
+This module provides a pure LLM approach to interview management.
+Handles all interview logic including quality assessment, question generation,
+flow progression, and phase transitions using AI instead of hardcoded rules.
+"""
+
+import logging
+from typing import Dict, Any, Optional, List
+from services.llm.utils import client, retry_with_backoff, safe_strip
+from services.db import (
+    get_interview_session, update_interview_session_answer, 
+    add_follow_up_question, transition_to_coding_phase
+)
+from services.rag.retriever_factory import get_rag_retriever
+from openai.types.chat import (
+    ChatCompletionMessageParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionUserMessageParam
+)
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+class InterviewOrchestrator:
+    """Manages entire interview flow using pure LLM approach."""
+    
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        self.session_data = None
+        self.interview_type = None
+        
+    async def initialize(self):
+        """Initialize the orchestrator with session data."""
+        session = await get_interview_session(self.session_id)
+        if not session:
+            raise ValueError(f"Session not found: {self.session_id}")
+        
+        self.session_data = session["meta"]["session_data"]
+        self.interview_type = self.session_data.get("interview_type", "approach")
+        logger.info(f"Initialized orchestrator for {self.interview_type} interview")
+    
+    async def process_answer(self, user_answer: str) -> Dict[str, Any]:
+        """Process user answer and determine next action using LLM."""
+        await self.initialize()
+        
+        # Get RAG context
+        rag_context = await self._get_rag_context()
+        
+        # Build comprehensive prompt for LLM decision (includes current bad answer count)
+        prompt = self._build_decision_prompt(user_answer, rag_context)
+        
+        # Get LLM decision
+        llm_response = await self._get_llm_decision(prompt)
+        
+        # Execute the decision
+        return await self._execute_llm_decision(llm_response, user_answer)
+    
+    def _build_decision_prompt(self, user_answer: str, rag_context: str) -> str:
+        """Build comprehensive prompt for LLM to make all decisions."""
+        
+        # Build conversation history
+        conversation_history = self._build_conversation_history()
+        
+        # Base system prompt
+        system_prompt = """You are a Senior Technical Interviewer having a natural conversation with a candidate.
+
+Your task is to analyze the user's answer and determine the next action. You must respond with a JSON object containing:
+
+{
+    "action": "next_question|retry_same|transition_phase|complete_session",
+    "reason": "explanation of your decision",
+    "quality_assessment": "good|bad|excellent",
+    "next_question": "the next question to ask (if action is next_question)",
+    "feedback": "feedback for the user (if action is retry_same)",
+    "phase": "verbal|coding|completed",
+    "ready_to_code": true|false,
+    "clarification_count": number,
+    "max_clarifications": number,
+    "answer_rejected": true|false,
+    "retry_same_question": true|false,
+    "session_complete": true|false
+}
+
+Note: "complete_session" action means suggest to the user that they should end the interview and come back better prepared.
+
+CRITICAL RULES:
+1. Only generate next_question if answer quality is good/excellent
+2. For bad answers, ask user to retry the same question
+3. Respect clarification limits (max 2 per question, 5 total)
+4. For approach interviews: if user would have 3+ bad quality answers (including current), use action "complete_session" to suggest ending
+5. For coding interviews: if user would have 4-5+ bad quality answers (including current), use action "complete_session" to suggest ending
+6. Transition to coding phase after 5 good answers for coding interviews
+7. Complete session after 7 good answers for approach interviews
+8. Never ask for code in non-coding interviews
+9. Generate contextually relevant follow-up questions
+
+IMPORTANT: Make your questions sound natural and conversational, like a real interviewer would ask. Use casual language, show interest, and ask follow-ups that feel like a genuine conversation, not a textbook quiz. Avoid repetitive language and vary your vocabulary naturally.
+
+CRITICAL: When asking candidates to retry an answer, NEVER give away specific technical details, component names, or solution approaches. Simply ask them to clarify or try again without revealing what they should have said."""
+
+        # Interview type specific instructions
+        if self.interview_type == "coding":
+             type_instructions = """
+CODING INTERVIEW SPECIFIC RULES:
+- Focus on problem understanding and solution design
+- Generate contextually relevant follow-up questions based on the user's specific answer
+- Ask about aspects the user didn't cover or areas that need deeper exploration
+- Questions should build on previous answers and explore new dimensions
+- Avoid generic questions like "edge cases" unless specifically relevant
+- Use conversational language: "Hmm, what about..." or "That's interesting, but..."
+- Show genuine interest in their thinking
+- If user would have 4-5+ bad quality answers (including current), use action "complete_session" to suggest ending
+- Transition to coding phase after 5 good answers
+- No actual code writing until coding phase"""
+        else:
+            type_instructions = """
+APPROACH INTERVIEW SPECIFIC RULES:
+- Focus on business logic, real-world application, and strategic thinking
+- Ask about stakeholder considerations, business impact, and implementation challenges
+- Questions about problem scope, edge cases, and business value
+- For data science/ML questions: focus on methodology and business outcomes
+- Technical methodology IS business logic when it directly impacts business decisions
+- Use conversational language: "That's a good point, but what about..." or "I'm curious about..."
+- Show genuine interest in their business thinking
+- If user would have 3+ bad quality answers (including current), use action "complete_session" to suggest ending
+- Complete session after 7 good answers
+- Never ask for actual code writing, but technical methodology discussion is encouraged
+- When asking for retries: ask for clarification without revealing specific technical details"""
+
+        # Calculate current bad answer count
+        current_bad_answers = len([q for q in self.session_data.get('follow_up_questions', []) if q.get('answer') and q.get('answer_rejected', True)])
+        logger.info(f"Current bad answers count: {current_bad_answers}, Interview type: {self.interview_type}")
+        
+        # Build user prompt
+        user_prompt = f"""
+INTERVIEW CONTEXT:
+- Type: {self.interview_type}
+- Current Phase: {self.session_data.get('current_phase', 'verbal')}
+- Questions Answered: {len([q for q in self.session_data.get('follow_up_questions', []) if q.get('answer')])}
+- Total Clarifications: {sum(q.get('clarification_count', 0) for q in self.session_data.get('follow_up_questions', []))}
+- Bad Quality Answers So Far: {current_bad_answers}
+- Base Question: {self.session_data.get('questions', [{}])[0].get('question', '') if self.session_data.get('questions') else ''}
+
+CONVERSATION HISTORY:
+{conversation_history}
+
+USER'S LATEST ANSWER:
+{user_answer}
+
+RAG CONTEXT:
+{rag_context}
+
+Based on this information, determine the next action. Remember:
+- Assess answer quality first
+- If this answer is bad, it would make the total bad answers: {current_bad_answers + 1}
+- Decide whether to progress or retry
+- Generate appropriate questions or feedback
+- Manage interview flow and phase transitions
+- For approach interviews: if user would have 3+ bad quality answers (including this one), use action "complete_session" to suggest ending
+- For coding interviews: if user would have 4-5+ bad quality answers (including this one), use action "complete_session" to suggest ending
+
+Respond with the JSON object as specified above."""
+
+        return {
+            "system": system_prompt + type_instructions,
+            "user": user_prompt
+        }
+    
+    def _build_conversation_history(self) -> str:
+        """Build conversation history for context."""
+        history = []
+        
+        # Add base question
+        if self.session_data.get("questions"):
+            base_q = self.session_data["questions"][0]
+            history.append(f"Base Question: {base_q.get('question', '')}")
+        
+        # Add recent Q&A pairs (last 2 for context)
+        follow_ups = self.session_data.get("follow_up_questions", [])
+        recent_qa = [q for q in follow_ups[-2:] if q.get("answer")]
+        
+        for q in recent_qa:
+            history.append(f"Q: {q.get('question', '')}")
+            history.append(f"A: {q.get('answer', '')}")
+        
+        return "\n".join(history)
+    
+    async def _get_llm_decision(self, prompt: Dict[str, str]) -> Dict[str, Any]:
+        """Get decision from LLM."""
+        try:
+            messages = [
+                ChatCompletionSystemMessageParam(role="system", content=prompt["system"]),
+                ChatCompletionUserMessageParam(role="user", content=prompt["user"])
+            ]
+            
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=messages,
+                temperature=0.3,
+                max_tokens=500
+            )
+            
+            content = safe_strip(getattr(response.choices[0].message, 'content', None))
+            logger.info(f"LLM Decision: {content[:200]}...")
+            
+            # Parse JSON response
+            import json
+            try:
+                decision = json.loads(content)
+                return decision
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse LLM response as JSON: {content}")
+                # Fallback decision
+                return {
+                    "action": "retry_same",
+                    "reason": "LLM response parsing failed",
+                    "quality_assessment": "bad",
+                    "feedback": "Please provide a more detailed answer to the question.",
+                    "phase": self.session_data.get("current_phase", "verbal"),
+                    "ready_to_code": False,
+                    "clarification_count": 1,
+                    "max_clarifications": 2,
+                    "answer_rejected": True,
+                    "retry_same_question": True,
+                    "session_complete": False
+                }
+                
+        except Exception as e:
+            logger.error(f"Error getting LLM decision: {str(e)}")
+            # Fallback decision
+            return {
+                "action": "retry_same",
+                "reason": f"LLM error: {str(e)}",
+                "quality_assessment": "bad",
+                "feedback": "Please provide a more detailed answer to the question.",
+                "phase": self.session_data.get("current_phase", "verbal"),
+                "ready_to_code": False,
+                "clarification_count": 1,
+                "max_clarifications": 2,
+                "answer_rejected": True,
+                "retry_same_question": True,
+                "session_complete": False
+            }
+    
+    async def _execute_llm_decision(self, decision: Dict[str, Any], user_answer: str) -> Dict[str, Any]:
+        """Execute the LLM's decision."""
+        action = decision.get("action", "retry_same")
+        
+        # Update session with user's answer
+        await update_interview_session_answer(self.session_id, user_answer, False)
+        
+        if action == "next_question":
+            # Mark the answer as accepted in the database
+            await self._mark_answer_as_accepted(user_answer)
+            
+            # Add the next question to session
+            next_question = decision.get("next_question", "")
+            if next_question:
+                await add_follow_up_question(self.session_id, next_question)
+            
+            return {
+                "question": next_question,
+                "ready_to_code": decision.get("ready_to_code", False),
+                "language": self.session_data.get("language", "Python") if self.interview_type == "coding" else None
+            }
+            
+        elif action == "retry_same":
+            # Mark the answer as rejected in the database
+            await self._mark_answer_as_rejected(user_answer)
+            logger.info(f"Answer marked as rejected. Quality: {decision.get('quality_assessment', 'unknown')}")
+            
+            # Return retry request
+            return {
+                "question": decision.get("feedback", "Please provide a more detailed answer."),
+                "current_question": self._get_current_question(),
+                "ready_to_code": False,
+                "answer_rejected": True,
+                "retry_same_question": True,
+                "clarification_count": decision.get("clarification_count", 1),
+                "max_clarifications": decision.get("max_clarifications", 2),
+                "interview_type": self.interview_type,
+                "quality_feedback": decision.get("feedback", ""),
+                "language": self.session_data.get("language", "Python") if self.interview_type == "coding" else None
+            }
+            
+        elif action == "transition_phase":
+            # Transition to coding phase
+            if self.interview_type == "coding":
+                await transition_to_coding_phase(self.session_id)
+                return {
+                    "question": "Great! Now let's move to the coding phase. You can start coding.",
+                    "clarification": True,
+                    "ready_to_code": True,
+                    "language": self.session_data.get("language", "Python")
+                }
+            else:
+                # For approach interviews, complete the session
+                await self._mark_session_as_completed()
+                return {
+                    "question": "Great discussion! You can submit the session and check your feedback.",
+                    "session_complete": True
+                }
+                
+        elif action == "complete_session":
+            # LLM suggests ending session due to too many bad answers
+            # Note: LLM cannot actually end the session - user must do this manually
+            logger.info(f"LLM decided to complete session. Reason: {decision.get('reason', 'unknown')}")
+            await self._mark_session_as_completed()
+            return {
+                "question": "I think we should end this interview here. You might want to review the material and come back better prepared next time. Please end the session and come back when you're better prepared.",
+                "session_complete": True
+            }
+        
+        # Default fallback
+        return {
+            "question": "Please provide a more detailed answer to continue.",
+            "ready_to_code": False,
+            "language": self.session_data.get("language", "Python") if self.interview_type == "coding" else None
+        }
+    
+    def _get_current_question(self) -> str:
+        """Get the current question being answered."""
+        follow_ups = self.session_data.get("follow_up_questions", [])
+        if follow_ups:
+            return follow_ups[-1].get("question", "")
+        elif self.session_data.get("questions"):
+            return self.session_data["questions"][0].get("question", "")
+        return ""
+    
+    async def _mark_answer_as_rejected(self, user_answer: str):
+        """Mark the current answer as rejected in the database."""
+        try:
+            from services.db import get_db
+            db = await get_db()
+            
+            # Get fresh session data
+            session = await get_interview_session(self.session_id)
+            if not session:
+                return
+            
+            session_data = session["meta"]["session_data"]
+            follow_up_questions = session_data.get("follow_up_questions", [])
+            
+            if follow_up_questions:
+                # Find the last question with an answer and mark it as rejected
+                for question in reversed(follow_up_questions):
+                    if question.get("answer") == user_answer:
+                        question["answer_rejected"] = True
+                        break
+                
+                # Update the database
+                await db.user_ai_interactions.update_one(
+                    {"session_id": self.session_id},
+                    {
+                        "$set": {
+                            "meta.session_data": session_data,
+                            "timestamp": datetime.utcnow()
+                        }
+                    }
+                )
+                logger.info(f"Marked answer as rejected for session {self.session_id}")
+        except Exception as e:
+            logger.error(f"Error marking answer as rejected: {str(e)}")
+    
+    async def _mark_session_as_completed(self):
+        """Mark the session as completed due to too many bad answers."""
+        try:
+            from services.db import get_db
+            db = await get_db()
+            
+            # Get fresh session data
+            session = await get_interview_session(self.session_id)
+            if not session:
+                return
+            
+            session_data = session["meta"]["session_data"]
+            session_data["status"] = "completed"
+            session_data["current_phase"] = "completed"
+            session_data["completion_reason"] = "too_many_bad_answers"
+            
+            # Update the database
+            await db.user_ai_interactions.update_one(
+                {"session_id": self.session_id},
+                {
+                    "$set": {
+                        "meta.session_data": session_data,
+                        "timestamp": datetime.utcnow()
+                    }
+                }
+            )
+            logger.info(f"Marked session as completed due to too many bad answers: {self.session_id}")
+        except Exception as e:
+            logger.error(f"Error marking session as completed: {str(e)}")
+    
+    async def _mark_answer_as_accepted(self, user_answer: str):
+        """Mark the current answer as accepted in the database."""
+        try:
+            from services.db import get_db
+            db = await get_db()
+            
+            # Get fresh session data
+            session = await get_interview_session(self.session_id)
+            if not session:
+                return
+            
+            session_data = session["meta"]["session_data"]
+            follow_up_questions = session_data.get("follow_up_questions", [])
+            
+            if follow_up_questions:
+                # Find the last question with an answer and mark it as accepted
+                for question in reversed(follow_up_questions):
+                    if question.get("answer") == user_answer:
+                        question["answer_rejected"] = False
+                        break
+                
+                # Update the database
+                await db.user_ai_interactions.update_one(
+                    {"session_id": self.session_id},
+                    {
+                        "$set": {
+                            "meta.session_data": session_data,
+                            "timestamp": datetime.utcnow()
+                        }
+                    }
+                )
+                logger.info(f"Marked answer as accepted for session {self.session_id}")
+        except Exception as e:
+            logger.error(f"Error marking answer as accepted: {str(e)}")
+    
+    async def _get_rag_context(self) -> str:
+        """Get RAG context for the topic."""
+        try:
+            retriever = await get_rag_retriever()
+            if retriever:
+                context_chunks = await retriever.retrieve_context(self.session_data.get("topic", ""))
+                return "\n\n".join(context_chunks)
+        except Exception as e:
+            logger.warning(f"Failed to get RAG context: {e}")
+        return ""
+
+class CodingPhaseOrchestrator:
+    """Handles coding phase logic separately."""
+    
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        self.session_data = None
+        
+    async def initialize(self):
+        """Initialize with session data."""
+        session = await get_interview_session(self.session_id)
+        if not session:
+            raise ValueError(f"Session not found: {self.session_id}")
+        self.session_data = session["meta"]["session_data"]
+    
+    async def handle_clarification(self, answer: str) -> Dict[str, Any]:
+        """Handle clarification during coding phase."""
+        await self.initialize()
+        
+        # Get current clarification count and ensure it's a number
+        current_count = self.session_data.get("coding_clarification_count", 0)
+        if not isinstance(current_count, int):
+            current_count = 0
+        
+        # Increment for this request
+        clarification_count = current_count + 1
+        max_clarifications = 2
+        
+        if clarification_count > max_clarifications:
+            message = "You've reached the maximum clarification attempts. Let's proceed with coding based on your current understanding."
+        else:
+            # Generate clarification response using LLM
+            prompt = f"""
+            You are helping a candidate during the coding phase of an interview.
+            
+            Base Question: {self.session_data.get('questions', [{}])[0].get('question', '')}
+            Candidate's Clarification Request: {answer}
+            
+            Provide a helpful clarification response. Be concise and helpful.
+            """
+            
+            try:
+                response = await client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3,
+                    max_tokens=200
+                )
+                message = safe_strip(getattr(response.choices[0].message, 'content', None))
+            except Exception as e:
+                logger.error(f"Error generating clarification: {str(e)}")
+                message = "Please clarify what specific aspect you need help with."
+        
+        # Update clarification count
+        from services.db import get_db
+        db = await get_db()
+        await db.user_ai_interactions.update_one(
+            {"session_id": self.session_id},
+            {"$set": {"meta.session_data.coding_clarification_count": clarification_count}}
+        )
+        
+        return {
+            "question": message,
+            "clarification": True,
+            "ready_to_code": True,
+            "clarification_count": clarification_count,
+            "max_clarifications": max_clarifications,
+            "language": self.session_data.get("language", "Python")
+        }
+    
+    async def handle_code_submission(self, code: str) -> Dict[str, Any]:
+        """Handle final code submission."""
+        await self.initialize()
+        
+        # Mark session as completed
+        self.session_data["status"] = "completed"
+        self.session_data["current_phase"] = "completed"
+        
+        from services.db import get_db
+        db = await get_db()
+        await db.user_ai_interactions.update_one(
+            {"session_id": self.session_id},
+            {
+                "$set": {
+                    "meta.session_data": self.session_data,
+                    "timestamp": datetime.utcnow()
+                }
+            }
+        )
+        
+        return {"message": "Code submitted successfully. You can now generate feedback."}
