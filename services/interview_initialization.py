@@ -64,12 +64,16 @@ class InterviewInitializer:
     async def _generate_first_follow_up(self, base_question_data: Dict[str, Any], rag_context: str) -> str:
         """Generate the first follow-up question."""
         try:
+            # Get user name first to personalize the base question
+            user_name = await get_user_name_from_id(self.user_id)
+            
             return await get_next_question(
                 [], 
                 is_base_question=True, 
                 topic=self.module_code, 
                 rag_context=rag_context, 
-                interview_type=base_question_data.get("interview_type", "coding")
+                interview_type=base_question_data.get("interview_type", "coding"),
+                user_name=user_name or ""
             )
         except Exception as e:
             logger.error(f"Error generating follow-up question: {str(e)}", exc_info=True)

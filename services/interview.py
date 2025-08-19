@@ -35,7 +35,8 @@ async def get_next_question(
     is_base_question: bool = False,
     topic: str = "",
     rag_context: Optional[str] = None,
-    interview_type: str = "coding"
+    interview_type: str = "coding",
+    user_name: str = ""
 ) -> str:
     """
     Generate next interview question based on conversation history.
@@ -45,7 +46,12 @@ async def get_next_question(
     try:
         # Return standard first question for base questions
         if is_base_question:
-            return "Can you walk me through your thought process on how you would approach this problem?"
+            # Use provided username or fallback to generic greeting
+            if user_name and user_name.strip():
+                greeting = f"Hello {user_name}, welcome to your mock interview session. I hope your preparation is going well. Please take a moment to review the problem above. When you're ready, walk me through your initial approach to solving this problem."
+            else:
+                greeting = "Hello! Welcome to your mock interview session. I hope your preparation is going well. Please take a moment to review the problem above. When you're ready, walk me through your initial approach to solving this problem."
+            return greeting
 
         # Build conversation with system prompt and context
         messages: List[ChatCompletionMessageParam] = [
