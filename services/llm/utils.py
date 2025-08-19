@@ -16,6 +16,8 @@ import json
 import tiktoken
 from dotenv import load_dotenv
 import httpx
+import random # Added for jitter in retry_with_backoff
+import time # Added for rate limiter
 load_dotenv()
 
 TOKEN_LIMIT = 8192
@@ -27,6 +29,11 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
     logger.error("OPENAI_API_KEY not found in environment variables")
     raise ValueError("OPENAI_API_KEY must be set")
+
+# Rate limiting configuration
+RATE_LIMIT_CALLS_PER_MINUTE = int(os.getenv("OPENAI_RATE_LIMIT", "50"))
+RATE_LIMIT_MAX_RETRIES = int(os.getenv("OPENAI_MAX_RETRIES", "5"))
+RATE_LIMIT_BASE_DELAY = float(os.getenv("OPENAI_BASE_DELAY", "1.0"))
 
 # === Shared Async OpenAI Client ===
 client = openai.AsyncOpenAI(api_key=openai_api_key)
@@ -53,12 +60,13 @@ def is_valid_for_embedding(text: str) -> bool:
 # === Retry Logic Wrapper ===
 def retry_with_backoff(func: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
     """
-    Decorator for retrying failed API calls with exponential backoff.
+    Enhanced decorator for retrying failed API calls with OpenAI-specific error handling.
+    Handles rate limits (429), quota exceeded, and other OpenAI errors with intelligent backoff.
     """
     @wraps(func)
     async def wrapper(*args: Any, **kwargs: Any) -> Any:
-        MAX_RETRIES = 3
-        RETRY_DELAY = 1
+        MAX_RETRIES = RATE_LIMIT_MAX_RETRIES
+        BASE_DELAY = RATE_LIMIT_BASE_DELAY
         last_error = None
 
         for attempt in range(MAX_RETRIES):
@@ -66,12 +74,89 @@ def retry_with_backoff(func: Callable[..., Awaitable[Any]]) -> Callable[..., Awa
                 return await func(*args, **kwargs)
             except Exception as e:
                 last_error = e
-                logger.warning(f"Attempt {attempt + 1} failed: {str(e)}. Retrying...")
-                await asyncio.sleep(RETRY_DELAY * (attempt + 1))
+                error_str = str(e).lower()
+                
+                # Handle OpenAI-specific errors
+                if "429" in error_str or "too many requests" in error_str:
+                    # Rate limit - use exponential backoff with jitter
+                    delay = BASE_DELAY * (2 ** attempt) + (random.random() * 0.1)
+                    logger.warning(f"Rate limit hit (attempt {attempt + 1}/{MAX_RETRIES}). Waiting {delay:.2f}s...")
+                    await asyncio.sleep(delay)
+                elif "insufficient_quota" in error_str or "quota exceeded" in error_str:
+                    # Quota exceeded - this won't resolve with retries
+                    logger.error(f"OpenAI quota exceeded: {str(e)}")
+                    raise Exception(f"OpenAI quota exceeded. Please check your billing plan: {str(e)}")
+                elif "timeout" in error_str or "timed out" in error_str:
+                    # Timeout - use shorter backoff
+                    delay = BASE_DELAY * (1.5 ** attempt)
+                    logger.warning(f"Timeout error (attempt {attempt + 1}/{MAX_RETRIES}). Waiting {delay:.2f}s...")
+                    await asyncio.sleep(delay)
+                else:
+                    # Other errors - use standard exponential backoff
+                    delay = BASE_DELAY * (2 ** attempt)
+                    logger.warning(f"Attempt {attempt + 1} failed: {str(e)}. Retrying in {delay:.2f}s...")
+                    await asyncio.sleep(delay)
 
         logger.error(f"Failed after {MAX_RETRIES} attempts: {str(last_error)}")
         raise last_error or Exception("Unknown error during OpenAI call")
     return wrapper
+
+# === Rate Limiting Utility ===
+class RateLimiter:
+    """
+    Simple rate limiter for OpenAI API calls to prevent hitting rate limits.
+    """
+    def __init__(self, max_calls_per_minute: int = None):
+        self.max_calls = max_calls_per_minute or RATE_LIMIT_CALLS_PER_MINUTE
+        self.calls = []
+        self.lock = asyncio.Lock()
+    
+    async def acquire(self):
+        """Acquire permission to make an API call."""
+        async with self.lock:
+            now = time.time()
+            # Remove calls older than 1 minute
+            self.calls = [call_time for call_time in self.calls if now - call_time < 60]
+            
+            if len(self.calls) >= self.max_calls:
+                # Wait until we can make another call
+                wait_time = 60 - (now - self.calls[0])
+                if wait_time > 0:
+                    logger.warning(f"Rate limit reached. Waiting {wait_time:.2f}s...")
+                    await asyncio.sleep(wait_time)
+                    # Recursive call after waiting
+                    return await self.acquire()
+            
+            self.calls.append(now)
+            return True
+
+# Global rate limiter instance
+rate_limiter = RateLimiter()
+
+# === Safe OpenAI API Call Function ===
+async def safe_openai_call(call_func: Callable[..., Awaitable[Any]], *args, **kwargs) -> Any:
+    """
+    Safely make OpenAI API calls with rate limiting and retry logic.
+    
+    Args:
+        call_func: The OpenAI API function to call
+        *args, **kwargs: Arguments to pass to the function
+    
+    Returns:
+        The result of the API call
+        
+    Raises:
+        Exception: If the call fails after all retries
+    """
+    # First, acquire rate limit permission
+    await rate_limiter.acquire()
+    
+    # Then make the call with retry logic
+    @retry_with_backoff
+    async def _make_call():
+        return await call_func(*args, **kwargs)
+    
+    return await _make_call()
 
 # === Safe Strip Utility ===
 def safe_strip(text: Union[str, None]) -> str:

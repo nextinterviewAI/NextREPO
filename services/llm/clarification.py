@@ -49,8 +49,11 @@ Keep your response conversational and natural, like a real interviewer would spe
             )
         ]
 
-        # Generate clarification using AI
-        response = await client.chat.completions.create(
+        # Generate clarification using AI with safe OpenAI call
+        from services.llm.utils import safe_openai_call
+        
+        response = await safe_openai_call(
+            client.chat.completions.create,
             model="gpt-4o-mini",
             messages=messages,
             temperature=0.7,

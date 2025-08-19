@@ -199,8 +199,11 @@ Return only valid JSON with structure:
 }}
 """
 
-        # Generate feedback using AI
-        response = await client.chat.completions.create(
+        # Generate feedback using AI with safe OpenAI call
+        from services.llm.utils import safe_openai_call
+        
+        response = await safe_openai_call(
+            client.chat.completions.create,
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": f"You are an expert interviewer providing intelligent, contextual feedback for {name_reference}. Focus on specific insights related to the interview conversation, avoiding generic or templated responses. Use personalization data to tailor feedback to the candidate's specific patterns and learning history."},

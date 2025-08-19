@@ -96,7 +96,10 @@ async def _attempt_optimization(
             logger.info("Added RAG context to prompt")
 
         logger.info(f"Calling LLM with model: {model}")
-        response = await client.chat.completions.create(
+        from services.llm.utils import safe_openai_call
+        
+        response = await safe_openai_call(
+            client.chat.completions.create,
             model=model,
             messages=[{"role": "user", "content": prompt}],
             max_completion_tokens=2000,  

@@ -141,8 +141,11 @@ Return ONLY valid JSON:
 }}
 """
 
-            # Generate analysis using AI (optimized for performance)
-            response = await self.client.chat.completions.create(
+            # Generate analysis using AI with safe OpenAI call (rate limiting + retries)
+            from services.llm.utils import safe_openai_call
+            
+            response = await safe_openai_call(
+                self.client.chat.completions.create,
                 model=MODEL_NAME,
                 messages=[
                     {"role": "system", "content": f"Expert interviewer providing constructive feedback for {name_reference}. Be encouraging while honest. Focus on strengths first, then areas for improvement. Use personalization data to tailor feedback. Score fairly based on understanding, not just execution. IMPORTANT: Use the candidate's name naturally throughout the feedback to make it more personal and engaging."},
