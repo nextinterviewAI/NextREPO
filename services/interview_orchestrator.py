@@ -45,6 +45,8 @@ class InterviewOrchestrator:
         """Process user answer and determine next action using LLM."""
         await self.initialize()
         
+        logger.info(f"Processing answer for session {self.session_id}, interview_type: {self.interview_type}")
+        
         # Get RAG context
         rag_context = await self._get_rag_context()
         
@@ -55,7 +57,10 @@ class InterviewOrchestrator:
         llm_response = await self._get_llm_decision(prompt)
         
         # Execute the decision
-        return await self._execute_llm_decision(llm_response, user_answer)
+        result = await self._execute_llm_decision(llm_response, user_answer)
+        
+        logger.info(f"Interview orchestrator result: {result}")
+        return result
     
     def _build_decision_prompt(self, user_answer: str, rag_context: str) -> str:
         """Build comprehensive prompt for LLM to make all decisions."""
@@ -98,17 +103,24 @@ CRITICAL RULES:
 1. Only generate next_question if answer quality is good/excellent
 2. For bad answers, ask user to retry the same question
 3. Respect clarification limits (max 2 per question, 5 total)
-4. For approach interviews: if user would have 3+ bad quality answers (including current), use action "complete_session" to suggest ending
-5. For coding interviews: if user would have 4-5+ bad quality answers (including current), use action "complete_session" to suggest ending
-6. **TRANSITION RULES - CRITICAL:**
+4. **BAD ANSWER THRESHOLDS - CRITICAL:**
+   - For approach/non-coding interviews: ONLY use action "complete_session" if user would have 3+ bad quality answers (including current)
+   - For coding interviews: ONLY use action "complete_session" if user would have 4-5+ bad quality answers (including current)
+   - **DO NOT end sessions prematurely**
+5. **TRANSITION RULES - CRITICAL:**
    - For coding interviews: if user has 5+ good answers AND current answer is good, use action "transition_phase"
    - For approach interviews: if user has 7+ good answers AND current answer is good, use action "complete_session"
-7. Never ask for code in non-coding interviews
-8. Generate contextually relevant follow-up questions
+   - **DO NOT ask follow-up questions when transition criteria are met**
+6. Never ask for code in non-coding interviews
+7. Generate contextually relevant follow-up questions
 
 IMPORTANT: Make your questions sound natural and conversational, like a real interviewer would ask. Use casual language, show interest, and ask follow-ups that feel like a genuine conversation, not a textbook quiz. Avoid repetitive language and vary your vocabulary naturally.
 
-CRITICAL: When asking candidates to retry an answer, NEVER give away specific technical details, component names, or solution approaches. Simply ask them to clarify or try again without revealing what they should have said."""
+CRITICAL: When asking candidates to retry an answer, NEVER give away specific technical details, component names, or solution approaches. Simply ask them to clarify or try again without revealing what they should have said.
+
+**TRANSITION PRIORITY: Phase transitions take priority over follow-up questions. When transition criteria are met, transition immediately.**
+
+**SESSION ENDING: Only end sessions when bad answer thresholds are actually exceeded. Be patient and give candidates multiple chances to improve.**"""
 
         # Interview type specific instructions
         if self.interview_type == "coding":
@@ -126,7 +138,7 @@ CODING INTERVIEW SPECIFIC RULES:
 - No actual code writing until coding phase"""
         else:
             type_instructions = """
-APPROACH INTERVIEW SPECIFIC RULES:
+APPROACH/NON-CODING INTERVIEW SPECIFIC RULES:
 - Focus on business logic, real-world application, and strategic thinking
 - Ask about stakeholder considerations, business impact, and implementation challenges
 - Questions about problem scope, edge cases, and business value
@@ -140,8 +152,25 @@ APPROACH INTERVIEW SPECIFIC RULES:
 - When asking for retries: ask for clarification without revealing specific technical details"""
 
         # Calculate current bad answer count
-        current_bad_answers = len([q for q in self.session_data.get('follow_up_questions', []) if q.get('answer') and q.get('answer_rejected', True)])
+        # Count all bad answers provided by the user, not just questions marked as rejected
+        follow_up_questions = self.session_data.get('follow_up_questions', [])
+        answered_questions = [q for q in follow_up_questions if q.get('answer')]
+        
+        # Count bad answers based on quality assessment history
+        # For approach interviews: end after 3+ bad answers
+        # For coding interviews: end after 4-5+ bad answers
+        current_bad_answers = 0
+        
+        # Track bad answers using a session-level counter
+        # Each time the LLM marks an answer as "bad", we increment the counter
+        session_bad_count = self.session_data.get('bad_answer_count', 0)
+        current_bad_answers = session_bad_count
+        
+        # Note: Current answer quality will be assessed by the LLM in the decision
+        # If current answer is bad, we'll increment the counter in the execution phase
+        
         logger.info(f"Current bad answers count: {current_bad_answers}, Interview type: {self.interview_type}")
+        logger.info(f"Answered questions: {[q.get('answer', '')[:20] + '...' for q in answered_questions]}")
         
         # Build user prompt
         user_prompt = f"""
@@ -166,14 +195,24 @@ RAG CONTEXT:
 Based on this information, determine the next action. Remember:
 - Assess answer quality first
 - If this answer is bad, it would make the total bad answers: {current_bad_answers + 1}
-- **PHASE TRANSITION LOGIC:**
+- **PHASE TRANSITION LOGIC - CRITICAL:**
   - For coding interviews: if user has 5+ good answers AND current answer is good, use action "transition_phase"
   - For approach interviews: if user has 7+ good answers AND current answer is good, use action "complete_session"
 - Decide whether to progress or retry
 - Generate appropriate questions or feedback
 - Manage interview flow and phase transitions
-- For approach interviews: if user would have 3+ bad quality answers (including this one), use action "complete_session" to suggest ending
-- For coding interviews: if user would have 4-5+ bad quality answers (including this one), use action "complete_session" to suggest ending
+- **BAD ANSWER THRESHOLDS:**
+  - For approach/non-coding interviews: ONLY use action "complete_session" if user would have 3+ bad quality answers (including this one)
+  - For coding interviews: ONLY use action "complete_session" if user would have 4-5+ bad quality answers (including this one)
+- **IMPORTANT**: Do NOT end the session prematurely. Only end if the bad answer threshold is actually exceeded.
+
+**TRANSITION DECISION TREE:**
+1. If interview_type = "coding" AND current_good_answers >= 5 AND current_answer_quality = "good" → action = "transition_phase"
+2. If interview_type = "approach" AND current_good_answers >= 7 AND current_answer_quality = "good" → action = "complete_session"
+3. If current_answer_quality = "bad" → action = "retry_same"
+4. Otherwise → action = "next_question"
+
+**CRITICAL**: If the user has provided multiple bad answers to the same question, consider ending the session after 3+ attempts for approach/non-coding interviews or 4-5+ attempts for coding interviews.
 
 Respond with the JSON object as specified above."""
 
@@ -326,9 +365,37 @@ Respond with the JSON object as specified above."""
             }
             
         elif action == "retry_same":
-            # Mark the answer as rejected in the database
+            # Mark the answer as rejected in the database and increment bad answer count
             await self._mark_answer_as_rejected(user_answer)
+            await self._increment_bad_answer_count()
             logger.info(f"Answer marked as rejected. Quality: {decision.get('quality_assessment', 'unknown')}")
+            
+            # Check if we should automatically end the session due to too many bad answers
+            # Get fresh session data after incrementing bad answer count
+            session = await get_interview_session(self.session_id)
+            if session:
+                session_data = session["meta"]["session_data"]
+                current_bad_count = session_data.get('bad_answer_count', 0)
+            else:
+                current_bad_count = 0
+            
+            logger.info(f"Retry check: bad answers: {current_bad_count}, threshold: {'3+' if self.interview_type in ['approach', 'non-coding'] else '4-5+'}")
+            
+            # Auto-end session if threshold exceeded
+            if self.interview_type in ["approach", "non-coding"] and current_bad_count >= 3:
+                logger.info(f"Auto-ending {self.interview_type} interview after {current_bad_count} bad answers")
+                await self._mark_session_as_completed()
+                return {
+                    "question": "I think we should end this interview here. You might want to review the material and come back better prepared next time. Please end the session and come back when you're better prepared.",
+                    "session_complete": True
+                }
+            elif self.interview_type == "coding" and current_bad_count >= 4:
+                logger.info(f"Auto-ending coding interview after {current_bad_count} bad answers")
+                await self._mark_session_as_completed()
+                return {
+                    "question": "I think we should end this interview here. You might want to review the material and come back better prepared next time. Please end the session and come back when you're better prepared.",
+                    "session_complete": True
+                }
             
             # Return retry request
             return {
@@ -367,12 +434,54 @@ Respond with the JSON object as specified above."""
         elif action == "complete_session":
             # LLM suggests ending session due to too many bad answers
             # Note: LLM cannot actually end the session - user must do this manually
-            logger.info(f"LLM decided to complete session. Reason: {decision.get('reason', 'unknown')}")
-            await self._mark_session_as_completed()
-            return {
-                "question": "I think we should end this interview here. You might want to review the material and come back better prepared next time. Please end the session and come back when you're better prepared.",
-                "session_complete": True
-            }
+            
+            # Validate that we actually have enough bad answers to end the session
+            follow_up_questions = self.session_data.get('follow_up_questions', [])
+            answered_questions = [q for q in follow_up_questions if q.get('answer')]
+            
+            # Get current session bad answer count
+            session_bad_count = self.session_data.get('bad_answer_count', 0)
+            current_bad_count = session_bad_count
+            
+            # Check if current answer should also be counted as bad
+            # (it will be incremented if we decide to retry, but for completion check we count it now)
+            if quality_assessment == "bad":
+                current_bad_count += 1
+            
+            logger.info(f"LLM requested session completion. Current bad answers: {current_bad_count}, Threshold: {'3+' if self.interview_type in ['approach', 'non-coding'] else '4-5+'}")
+            logger.info(f"Bad answers breakdown: {current_bad_count} rejected answers out of {len(answered_questions) + 1} total answers")
+            
+            # Only allow completion if threshold is actually met
+            if self.interview_type in ["approach", "non-coding"] and current_bad_count >= 3:
+                logger.info(f"LLM decided to complete session. Reason: {decision.get('reason', 'unknown')}")
+                await self._mark_session_as_completed()
+                return {
+                    "question": "I think we should end this interview here. You might want to review the material and come back better prepared next time. Please end the session and come back when you're better prepared.",
+                    "session_complete": True
+                }
+            elif self.interview_type == "coding" and current_bad_count >= 4:
+                logger.info(f"LLM decided to complete session. Reason: {decision.get('reason', 'unknown')}")
+                await self._mark_session_as_completed()
+                return {
+                    "question": "I think we should end this interview here. You might want to review the material and come back better prepared next time. Please end the session and come back when you're better prepared.",
+                    "session_complete": True
+                }
+            else:
+                # Threshold not met, override LLM decision and ask to retry
+                logger.warning(f"LLM requested premature session completion. Overriding decision. Bad answers: {current_bad_count}, Required: {'3+' if self.interview_type in ['approach', 'non-coding'] else '4-5+'}")
+                await self._mark_answer_as_rejected(user_answer)
+                return {
+                    "question": "Let's try that again. Please provide a more detailed answer to the question.",
+                    "current_question": self._get_current_question(),
+                    "ready_to_code": False,
+                    "answer_rejected": True,
+                    "retry_same_question": True,
+                    "clarification_count": 1,
+                    "max_clarifications": 2,
+                    "interview_type": self.interview_type,
+                    "quality_feedback": "Please provide a more detailed answer.",
+                    "language": self.session_data.get("language", "Python") if self.interview_type == "coding" else None
+                }
         
         # Default fallback
         return {
@@ -424,6 +533,36 @@ Respond with the JSON object as specified above."""
                 logger.info(f"Marked answer as rejected for session {self.session_id}")
         except Exception as e:
             logger.error(f"Error marking answer as rejected: {str(e)}")
+    
+    async def _increment_bad_answer_count(self):
+        """Increment the session-level bad answer counter."""
+        try:
+            from services.db import get_db
+            db = await get_db()
+            
+            # Get fresh session data
+            session = await get_interview_session(self.session_id)
+            if not session:
+                return
+            
+            session_data = session["meta"]["session_data"]
+            current_count = session_data.get("bad_answer_count", 0)
+            new_count = current_count + 1
+            session_data["bad_answer_count"] = new_count
+            
+            # Update the database
+            await db.user_ai_interactions.update_one(
+                {"session_id": self.session_id},
+                {
+                    "$set": {
+                        "meta.session_data": session_data,
+                        "timestamp": datetime.utcnow()
+                    }
+                }
+            )
+            logger.info(f"Incremented bad answer count to {new_count} for session {self.session_id}")
+        except Exception as e:
+            logger.error(f"Error incrementing bad answer count: {str(e)}")
     
     async def _mark_session_as_completed(self):
         """Mark the session as completed due to too many bad answers."""
