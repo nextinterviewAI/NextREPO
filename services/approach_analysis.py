@@ -113,6 +113,21 @@ SCORING CRITERIA (1-10 scale):
 - 3-4: Poor - Limited understanding, significant gaps, unclear
 - 1-2: Very Poor - Minimal understanding, major gaps, incorrect approach
 
+Question: {question}
+Response: {user_answer}
+Context: {context[:200] if context else ""}
+
+INPUT VALIDITY CHECK:
+- First, assess if the user's answer shows genuine engagement with the question.
+- If the response is: off-topic, nonsensical (e.g., 'approach', 'blah blah'), empty, or just repeating the question — treat it as low-faith effort.
+- For such cases: 
+   • Set score = 1 or 2
+   • In feedback, clearly state: "This response does not meaningfully address the question."
+   • strengths = ["Attempted to respond"]
+   • areas_for_improvement = ["Provide specific, thoughtful reasoning", "Engage with the actual problem"]
+- Do not fabricate insights from garbage input.
+- Only proceed to detailed analysis if the answer demonstrates real effort.
+
 Evaluation Framework:
 1. Structure & Clarity: Did they break down the problem logically?
 2. What Was Missing: What critical step/concept was not covered?
@@ -128,10 +143,6 @@ IMPORTANT SCORING GUIDELINES:
 - Be encouraging while honest - focus on what they did well and how to improve
 - Use the candidate's name naturally in feedback to make it more personal and engaging
 
-Question: {question}
-Response: {user_answer}
-Context: {context[:200] if context else ""}
-
 Return ONLY valid JSON:
 {{
     "feedback": "...",
@@ -139,18 +150,6 @@ Return ONLY valid JSON:
     "areas_for_improvement": [...],
     "score": number
 }}
-
-INPUT VALIDITY CHECK:
-- First, assess if the user's answer shows genuine engagement with the question.
-- If the response is: off-topic, nonsensical (e.g., 'approach', 'blah blah'), empty, or just repeating the question — treat it as low-faith effort.
-- For such cases: 
-   • Set score = 1 or 2
-   • In feedback, clearly state: "This response does not meaningfully address the question."
-   • strengths = ["Attempted to respond"]
-   • areas_for_improvement = ["Provide specific, thoughtful reasoning", "Engage with the actual problem"]
-- Do not fabricate insights from garbage input.
-
-Only proceed to detailed analysis if the answer demonstrates real effort.
 """
 
             # Generate analysis using AI with safe OpenAI call (rate limiting + retries)
