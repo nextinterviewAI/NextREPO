@@ -119,14 +119,15 @@ Context: {context[:200] if context else ""}
 
 INPUT VALIDITY CHECK:
 - First, assess if the user's answer shows genuine engagement with the question.
-- If the response is: off-topic, nonsensical (e.g., 'approach', 'blah blah'), empty, or just repeating the question — treat it as low-faith effort.
-- For such cases: 
+- If the response is: off-topic, nonsensical (e.g., 'approach', 'blah blah'), empty, just repeating the question, or contains no technical substance — treat it as low-faith effort.
+- For such cases:
    • Set score = 1 or 2
    • In feedback, clearly state: "This response does not meaningfully address the question."
    • strengths = ["Attempted to respond"]
    • areas_for_improvement = ["Provide specific, thoughtful reasoning", "Engage with the actual problem"]
-- Do not fabricate insights from garbage input.
-- Only proceed to detailed analysis if the answer demonstrates real effort.
+   • DO NOT include historical strengths (e.g., 'strong foundation') unless explicitly demonstrated in this answer
+- Do not fabricate insights or carry forward past strengths without current evidence.
+- Only proceed to detailed analysis if the answer demonstrates real effort and technical engagement.
 
 Evaluation Framework:
 1. Structure & Clarity: Did they break down the problem logically?
