@@ -139,6 +139,18 @@ Return ONLY valid JSON:
     "areas_for_improvement": [...],
     "score": number
 }}
+
+INPUT VALIDITY CHECK:
+- First, assess if the user's answer shows genuine engagement with the question.
+- If the response is: off-topic, nonsensical (e.g., 'approach', 'blah blah'), empty, or just repeating the question — treat it as low-faith effort.
+- For such cases: 
+   • Set score = 1 or 2
+   • In feedback, clearly state: "This response does not meaningfully address the question."
+   • strengths = ["Attempted to respond"]
+   • areas_for_improvement = ["Provide specific, thoughtful reasoning", "Engage with the actual problem"]
+- Do not fabricate insights from garbage input.
+
+Only proceed to detailed analysis if the answer demonstrates real effort.
 """
 
             # Generate analysis using AI with safe OpenAI call (rate limiting + retries)
