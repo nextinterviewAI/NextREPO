@@ -10,6 +10,8 @@ from typing import Dict, Any
 import logging
 from services.rag.retriever_factory import get_rag_retriever
 import asyncio
+from bson import ObjectId
+from bson.errors import InvalidId
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +57,6 @@ class ApproachAnalysisService:
     async def _get_user_name_from_db(self, user_id: str) -> str:
         try:
             from services.db import get_db
-            from bson import ObjectId
 
             db = await get_db()
             user_doc = None
@@ -64,10 +65,16 @@ class ApproachAnalysisService:
             try:
                 object_id = ObjectId(user_id)
                 user_doc = await db.users.find_one({"_id": object_id})
-            except Exception as e:
+                if user_doc:
+                    logger.info(f"Database lookup successful for user_id: {user_id}. Document found.")
+
+            except InvalidId:
                 logger.warning(f"Invalid ObjectId format for user_id {user_id}: {e}. Trying as string.")
-                # Fallback to finding by string ID
                 user_doc = await db.users.find_one({"_id": user_id})
+
+            except Exception as e:
+                logger.error(f"Unexpected error during user lookup for ID '{user_id}': {e}")
+                return "Candidate"
 
             if user_doc:
                 user_name = user_doc.get("user_name")
@@ -85,6 +92,7 @@ class ApproachAnalysisService:
             logger.error(f"Critical error fetching user name for user_id {user_id}: {e}", exc_info=True)
             return "Candidate"
 
+
     @retry_with_backoff
     async def analyze_approach(self, question: str, user_answer: str, user_name: str = None, previous_attempt: dict = None, personalized_guidance: str = None, user_patterns: Any = None, user_id: str = None) -> Dict[str, Any]: # type: ignore
         """
@@ -94,7 +102,11 @@ class ApproachAnalysisService:
         try: 
             # Get user's name from database if not provided
             if not user_name and user_id:
+                # Log the ID before the call
+                logger.info(f"Attempting to fetch user name for user_id: {user_id}")
                 user_name = await self._get_user_name_from_db(user_id)
+                # Log the result after the call
+                logger.info(f"_get_user_name_from_db returned: {user_name}")
             
             # Get relevant context from RAG system (reduced top_k for performance)
             context = await self._get_context(question, top_k=2)
@@ -126,11 +138,11 @@ INPUT VALIDITY CHECK:
 - First, assess if the user's answer shows genuine engagement with the question.
 - If the response is: off-topic, nonsensical (e.g., 'approach', 'blah blah'), empty, just repeating the question, or contains no technical substance — treat it as low-faith effort.
 - For such cases:
-   • Set score = 1 or 2
-   • In feedback, clearly state: "This response does not meaningfully address the question."
-   • strengths = ["Attempted to respond"]
-   • areas_for_improvement = ["Provide specific, thoughtful reasoning", "Engage with the actual problem"]
-   • DO NOT include historical strengths (e.g., 'strong foundation') unless explicitly demonstrated in this answer
+    • Set score = 1 or 2
+    • In feedback, clearly state: "This response does not meaningfully address the question."
+    • strengths = ["Attempted to respond"]
+    • areas_for_improvement = ["Provide specific, thoughtful reasoning", "Engage with the actual problem"]
+    • DO NOT include historical strengths (e.g., 'strong foundation') unless explicitly demonstrated in this answer
 - Do not fabricate insights or carry forward past strengths without current evidence.
 - Only proceed to detailed analysis if the answer demonstrates real effort and technical engagement.
 
