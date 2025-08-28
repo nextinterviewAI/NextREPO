@@ -47,8 +47,11 @@ class InterviewOrchestrator:
         
         logger.info(f"Processing answer for session {self.session_id}, interview_type: {self.interview_type}")
         
-        # Get RAG context
-        rag_context = await self._get_rag_context()
+        # Get RAG context (skip for non-coding to avoid irrelevant drift)
+        if self.interview_type in ["approach", "non-coding"]:
+            rag_context = ""
+        else:
+            rag_context = await self._get_rag_context()
         
         # Build comprehensive prompt for LLM decision (includes current bad answer count)
         prompt = self._build_decision_prompt(user_answer, rag_context)
@@ -120,7 +123,26 @@ CRITICAL: When asking candidates to retry an answer, NEVER give away specific te
 
 **TRANSITION PRIORITY: Phase transitions take priority over follow-up questions. When transition criteria are met, transition immediately.**
 
-**SESSION ENDING: Only end sessions when bad answer thresholds are actually exceeded. Be patient and give candidates multiple chances to improve.**"""
+**SESSION ENDING: Only end sessions when bad answer thresholds are actually exceeded. Be patient and give candidates multiple chances to improve.**
+
+BASE-QUESTION SCOPE:
+- All follow-up questions must remain strictly within the scope of the base question
+  and should build only on what the candidate has already said. Do not introduce
+  unrelated topics or drift away from the base question.
+
+DYNAMIC RUBRIC (Topic-Agnostic):
+1. First, derive 1-3 Essential Correctness Criteria directly from the base question text.
+2. Evaluate the user's latest answer against these criteria.
+3. MAJORITY RULE: If the answer satisfies a majority of the criteria (e.g., 2 of 3 or 1 of 1),
+   and directly addresses the base question, set quality_assessment = "good" and prefer
+   action = "next_question".
+4. If marking quality_assessment = "bad", the feedback MUST briefly reference which
+   criteria were unclear or unmet without revealing the exact answer.
+5. Concise but accurate answers should be accepted as "good".
+
+NON-LEADING FEEDBACK:
+- When asking for a retry, keep the rationale non-leading and avoid giving away
+  specific solution elements. Reference unmet criteria at a high level only."""
 
         # Interview type specific instructions
         if self.interview_type == "coding":
@@ -156,20 +178,17 @@ APPROACH/NON-CODING INTERVIEW SPECIFIC RULES:
         follow_up_questions = self.session_data.get('follow_up_questions', [])
         answered_questions = [q for q in follow_up_questions if q.get('answer')]
         
-        # Count bad answers based on quality assessment history
-        # For approach interviews: end after 3+ bad answers
-        # For coding interviews: end after 4-5+ bad answers
-        current_bad_answers = 0
-        
-        # Track bad answers using a session-level counter
-        # Each time the LLM marks an answer as "bad", we increment the counter
+        # Total bad answers so far (legacy counter retained for analytics)
         session_bad_count = self.session_data.get('bad_answer_count', 0)
         current_bad_answers = session_bad_count
         
-        # Note: Current answer quality will be assessed by the LLM in the decision
-        # If current answer is bad, we'll increment the counter in the execution phase
+        # Consecutive bad answers (used for non-coding end condition)
+        consecutive_bad_answers = self.session_data.get('consecutive_bad_answer_count', 0)
         
-        logger.info(f"Current bad answers count: {current_bad_answers}, Interview type: {self.interview_type}")
+        # Note: Current answer quality will be assessed by the LLM in the decision
+        # If current answer is bad, we'll increment the counters in the execution phase
+        
+        logger.info(f"Current bad answers count: {current_bad_answers}, Consecutive: {consecutive_bad_answers}, Interview type: {self.interview_type}")
         logger.info(f"Answered questions: {[q.get('answer', '')[:20] + '...' for q in answered_questions]}")
         
         # Build user prompt
@@ -181,6 +200,7 @@ INTERVIEW CONTEXT:
 - Good Quality Answers: {current_good_answers}
 - Total Clarifications: {sum(q.get('clarification_count', 0) for q in self.session_data.get('follow_up_questions', []))}
 - Bad Quality Answers So Far: {current_bad_answers}
+- Consecutive Bad Answers: {consecutive_bad_answers}
 - Base Question: {self.session_data.get('questions', [{}])[0].get('question', '') if self.session_data.get('questions') else ''}
 
 CONVERSATION HISTORY:
@@ -202,9 +222,9 @@ Based on this information, determine the next action. Remember:
 - Generate appropriate questions or feedback
 - Manage interview flow and phase transitions
 - **BAD ANSWER THRESHOLDS:**
-  - For approach/non-coding interviews: ONLY use action "complete_session" if user would have 3+ bad quality answers (including this one)
-  - For coding interviews: ONLY use action "complete_session" if user would have 4-5+ bad quality answers (including this one)
-- **IMPORTANT**: Do NOT end the session prematurely. Only end if the bad answer threshold is actually exceeded.
+  - For approach/non-coding interviews: ONLY suggest ending if the candidate would have 4+ CONSECUTIVE bad quality answers (including this one)
+  - For coding interviews: ONLY suggest ending if the candidate would have 4-5+ bad quality answers (including this one)
+- **IMPORTANT**: Do NOT end the session prematurely. Only end if the threshold is actually exceeded.
 
 **TRANSITION DECISION TREE:**
 1. If interview_type = "coding" AND current_good_answers >= 5 AND current_answer_quality = "good" → action = "transition_phase"
@@ -248,10 +268,12 @@ Respond with the JSON object as specified above."""
                 ChatCompletionUserMessageParam(role="user", content=prompt["user"])
             ]
             
+            # Reduce variability for non-coding/approach verbal decisions
+            temperature = 0.0 if self.interview_type in ["approach", "non-coding"] else 0.3
             response = await client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=messages,
-                temperature=0.3,
+                temperature=temperature,
                 max_tokens=500
             )
             
@@ -368,6 +390,8 @@ Respond with the JSON object as specified above."""
             # Mark the answer as rejected in the database and increment bad answer count
             await self._mark_answer_as_rejected(user_answer)
             await self._increment_bad_answer_count()
+            # Track consecutive bad answers for non-coding end condition
+            await self._increment_consecutive_bad_answer_count()
             logger.info(f"Answer marked as rejected. Quality: {decision.get('quality_assessment', 'unknown')}")
             
             # Check if we should automatically end the session due to too many bad answers
@@ -376,13 +400,15 @@ Respond with the JSON object as specified above."""
             if session:
                 session_data = session["meta"]["session_data"]
                 current_bad_count = session_data.get('bad_answer_count', 0)
+                current_consecutive_bad = session_data.get('consecutive_bad_answer_count', 0)
             else:
                 current_bad_count = 0
+                current_consecutive_bad = 0
             
-            logger.info(f"Retry check: bad answers: {current_bad_count}, threshold: {'3+' if self.interview_type in ['approach', 'non-coding'] else '4-5+'}")
+            logger.info(f"Retry check: bad answers: {current_bad_count}, consecutive: {current_consecutive_bad}, threshold: {'4+ consecutive' if self.interview_type in ['approach', 'non-coding'] else '4-5+'}")
             
             # Auto-end session if threshold exceeded
-            if self.interview_type in ["approach", "non-coding"] and current_bad_count >= 3:
+            if self.interview_type in ["approach", "non-coding"] and current_consecutive_bad >= 4:
                 logger.info(f"Auto-ending {self.interview_type} interview after {current_bad_count} bad answers")
                 await self._mark_session_as_completed()
                 return {
@@ -442,17 +468,19 @@ Respond with the JSON object as specified above."""
             # Get current session bad answer count
             session_bad_count = self.session_data.get('bad_answer_count', 0)
             current_bad_count = session_bad_count
+            current_consecutive_bad = self.session_data.get('consecutive_bad_answer_count', 0)
             
             # Check if current answer should also be counted as bad
             # (it will be incremented if we decide to retry, but for completion check we count it now)
             if quality_assessment == "bad":
                 current_bad_count += 1
+                current_consecutive_bad += 1
             
-            logger.info(f"LLM requested session completion. Current bad answers: {current_bad_count}, Threshold: {'3+' if self.interview_type in ['approach', 'non-coding'] else '4-5+'}")
+            logger.info(f"LLM requested session completion. Current bad answers: {current_bad_count}, Consecutive: {current_consecutive_bad}, Threshold: {'4+ consecutive' if self.interview_type in ['approach', 'non-coding'] else '4-5+'}")
             logger.info(f"Bad answers breakdown: {current_bad_count} rejected answers out of {len(answered_questions) + 1} total answers")
             
             # Only allow completion if threshold is actually met
-            if self.interview_type in ["approach", "non-coding"] and current_bad_count >= 3:
+            if self.interview_type in ["approach", "non-coding"] and current_consecutive_bad >= 4:
                 logger.info(f"LLM decided to complete session. Reason: {decision.get('reason', 'unknown')}")
                 await self._mark_session_as_completed()
                 return {
@@ -468,7 +496,7 @@ Respond with the JSON object as specified above."""
                 }
             else:
                 # Threshold not met, override LLM decision and ask to retry
-                logger.warning(f"LLM requested premature session completion. Overriding decision. Bad answers: {current_bad_count}, Required: {'3+' if self.interview_type in ['approach', 'non-coding'] else '4-5+'}")
+                logger.warning(f"LLM requested premature session completion. Overriding decision. Bad answers: {current_bad_count}, Consecutive: {current_consecutive_bad}, Required: {'4+ consecutive' if self.interview_type in ['approach', 'non-coding'] else '4-5+'}")
                 await self._mark_answer_as_rejected(user_answer)
                 return {
                     "question": "Let's try that again. Please provide a more detailed answer to the question.",
@@ -626,6 +654,22 @@ Respond with the JSON object as specified above."""
                     }
                 )
                 logger.info(f"Marked answer as accepted for session {self.session_id}")
+                
+                # Reset consecutive bad counter on accepted answer
+                session = await get_interview_session(self.session_id)
+                if session:
+                    session_data = session["meta"]["session_data"]
+                    session_data["consecutive_bad_answer_count"] = 0
+                    await db.user_ai_interactions.update_one(
+                        {"session_id": self.session_id},
+                        {
+                            "$set": {
+                                "meta.session_data": session_data,
+                                "timestamp": datetime.utcnow()
+                            }
+                        }
+                    )
+                    logger.info(f"Reset consecutive bad answer count to 0 for session {self.session_id}")
                 
                 # Fallback transition check for coding interviews
                 if self.interview_type == "coding":
