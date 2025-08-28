@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Body
 from services.approach_analysis import ApproachAnalysisService
 from models.schemas import ApproachAnalysisRequest
-from services.db import validate_user_id, save_user_ai_interaction, get_user_name_from_history, get_enhanced_personalized_context
+from services.db.database import validate_user_id
+from services.db.user_interactions import save_user_ai_interaction, get_user_name_from_history
+from services.db.personalization import get_enhanced_personalized_context
 from services.llm.utils import check_question_answered_by_id
 import logging
 import asyncio
@@ -37,7 +39,7 @@ async def analyze_approach(request: ApproachAnalysisRequest):
             get_enhanced_personalized_context(
                 request.user_id, 
                 user_name=user_name,  # Pass the fetched user name
-                question_id=getattr(request, "question_id", None)
+                question_id=getattr(request, "question_id", None) # type: ignore
             )
         ]
         
