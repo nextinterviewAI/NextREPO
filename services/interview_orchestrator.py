@@ -591,6 +591,36 @@ Respond with the JSON object as specified above."""
             logger.info(f"Incremented bad answer count to {new_count} for session {self.session_id}")
         except Exception as e:
             logger.error(f"Error incrementing bad answer count: {str(e)}")
+
+    async def _increment_consecutive_bad_answer_count(self):
+        """Increment the consecutive bad answer counter (used for non-coding threshold)."""
+        try:
+            from services.db import get_db
+            db = await get_db()
+
+            # Get fresh session data
+            session = await get_interview_session(self.session_id)
+            if not session:
+                return
+
+            session_data = session["meta"]["session_data"]
+            current_count = session_data.get("consecutive_bad_answer_count", 0)
+            new_count = current_count + 1
+            session_data["consecutive_bad_answer_count"] = new_count
+
+            # Update the database
+            await db.user_ai_interactions.update_one(
+                {"session_id": self.session_id},
+                {
+                    "$set": {
+                        "meta.session_data": session_data,
+                        "timestamp": datetime.utcnow()
+                    }
+                }
+            )
+            logger.info(f"Incremented consecutive bad answer count to {new_count} for session {self.session_id}")
+        except Exception as e:
+            logger.error(f"Error incrementing consecutive bad answer count: {str(e)}")
     
     async def _mark_session_as_completed(self):
         """Mark the session as completed due to too many bad answers."""
