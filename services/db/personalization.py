@@ -228,6 +228,7 @@ def generate_enhanced_guidance(patterns: dict, user_name: str = None):
         logger.error(f"Error generating enhanced guidance: {str(e)}", exc_info=True)
         return ""
 
+
 async def analyze_user_patterns(user_id: str):
     """
     Analyze user patterns from previous interactions for personalization.

@@ -68,7 +68,7 @@ class ApproachAnalysisService:
                 if user_doc:
                     logger.info(f"Database lookup successful for user_id: {user_id}. Document found.")
 
-            except InvalidId:
+            except InvalidId as e:
                 logger.warning(f"Invalid ObjectId format for user_id {user_id}: {e}. Trying as string.")
                 user_doc = await db.users.find_one({"_id": user_id})
 
@@ -100,7 +100,11 @@ class ApproachAnalysisService:
         Uses user history and patterns to tailor the analysis. 
         """
         try: 
-            # Get user's name from database if not provided
+            # Normalize placeholder names to trigger DB lookup
+            if user_name and isinstance(user_name, str) and user_name.strip().lower() in {"candidate", "n/a", "na", "null"}:
+                user_name = None
+
+            # Get user's name from database if not provided or was placeholder
             if not user_name and user_id:
                 # Log the ID before the call
                 logger.info(f"Attempting to fetch user name for user_id: {user_id}")
