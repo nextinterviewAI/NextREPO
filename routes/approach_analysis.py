@@ -1,14 +1,7 @@
-"""
-Approach Analysis API Routes
-
-This module handles approach analysis requests, providing structured feedback
-on user's problem-solving approaches with personalized recommendations.
-"""
-
 from fastapi import APIRouter, Depends, HTTPException, Body
 from services.approach_analysis import ApproachAnalysisService
 from models.schemas import ApproachAnalysisRequest
-from services.db import validate_user_id, save_user_ai_interaction, get_personalized_context, get_user_name_from_history, get_enhanced_personalized_context
+from services.db import validate_user_id, save_user_ai_interaction, get_user_name_from_history, get_enhanced_personalized_context
 from services.llm.utils import check_question_answered_by_id
 import logging
 import asyncio
@@ -34,44 +27,34 @@ async def analyze_approach(request: ApproachAnalysisRequest):
         raise HTTPException(status_code=404, detail="User not found")
     
     try:
-        # Parallelize ALL database calls for maximum performance
-        user_name_task = get_user_name_from_history(request.user_id)
-        progress_data_task = None
-        if getattr(request, "question_id", None):
-            progress_data_task = check_question_answered_by_id(request.user_id, request.question_id)
-        
-        # Execute ALL database calls in parallel (including personalization)
         db_start = time.time()
-        personalized_context_task = get_enhanced_personalized_context(
-            request.user_id, 
-            user_name=None,  # Will be filled later
-            question_id=getattr(request, "question_id", None)
-        )
         
-        if progress_data_task:
-            user_name, progress_data, personalized_context = await asyncio.gather(
-                user_name_task, 
-                progress_data_task,
-                personalized_context_task
+        # --- FIX: Retrieve user name first as it is a dependency ---
+        user_name = await get_user_name_from_history(request.user_id)
+
+        # Parallelize the remaining database calls
+        tasks = [
+            get_enhanced_personalized_context(
+                request.user_id, 
+                user_name=user_name,  # Pass the fetched user name
+                question_id=getattr(request, "question_id", None)
             )
+        ]
+        
+        if getattr(request, "question_id", None):
+            tasks.append(check_question_answered_by_id(request.user_id, request.question_id))
+
+        # Execute the remaining database calls in parallel
+        if len(tasks) > 1:
+            personalized_context, progress_data = await asyncio.gather(*tasks)
         else:
-            user_name, personalized_context = await asyncio.gather(
-                user_name_task, 
-                personalized_context_task
-            )
+            personalized_context = await tasks[0]
             progress_data = None
         
         db_time = time.time() - db_start
         logger.info(f"All database calls completed in {db_time:.2f}s")
         
-        # Update personalized context with user_name (since it was None during parallel call)
-        if user_name and personalized_context.get("personalized_guidance"):
-            # Re-generate guidance with user_name for better personalization
-            from services.db.personalization import generate_enhanced_guidance
-            user_patterns = personalized_context.get("user_patterns", {})
-            personalized_context["personalized_guidance"] = generate_enhanced_guidance(user_patterns, user_name)
-        
-        # Log context for debugging
+        # Log context for debugging (no longer needs to be re-generated)
         logger.info(f"personalized_guidance: {personalized_context['personalized_guidance']}")
         logger.info(f"user_patterns: {personalized_context['user_patterns']}")
         
@@ -92,11 +75,11 @@ async def analyze_approach(request: ApproachAnalysisRequest):
         result = await analysis_service.analyze_approach(
             question=request.question,
             user_answer=request.user_answer,
-            user_name=user_name,
+            user_name=user_name, # Pass the fetched name
             previous_attempt=previous_attempt,
             personalized_guidance=personalized_guidance,
             user_patterns=personalized_context["user_patterns"] if "user_patterns" in personalized_context else None,
-            user_id=request.user_id  # Pass user_id for name lookup
+            user_id=request.user_id # Pass user_id for name lookup
         )
         analysis_time = time.time() - analysis_start
         logger.info(f"AI analysis completed in {analysis_time:.2f}s")
