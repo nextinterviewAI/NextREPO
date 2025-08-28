@@ -53,31 +53,36 @@ class ApproachAnalysisService:
             return ""
 
     async def _get_user_name_from_db(self, user_id: str) -> str:
-        """
-        Fetch user's name from the users collection.
-        Returns the user_name field or 'Candidate' as fallback.
-        """
         try:
             from services.db import get_db
+            from bson import ObjectId
+
             db = await get_db()
-            
-            # Try to find user by ObjectId first, then by string
+            user_doc = None
+
+            # Attempt to find by ObjectId first
             try:
-                from bson import ObjectId
                 object_id = ObjectId(user_id)
-                user = await db.users.find_one({"_id": object_id})
-            except:
-                user = await db.users.find_one({"_id": user_id})
-            
-            if user and user.get("user_name"):
-                logger.info(f"Found user name: {user['user_name']} for user_id: {user_id}")
-                return user["user_name"]
+                user_doc = await db.users.find_one({"_id": object_id})
+            except Exception as e:
+                logger.warning(f"Invalid ObjectId format for user_id {user_id}: {e}. Trying as string.")
+                # Fallback to finding by string ID
+                user_doc = await db.users.find_one({"_id": user_id})
+
+            if user_doc:
+                user_name = user_doc.get("user_name")
+                if user_name:
+                    logger.info(f"Successfully fetched user name: {user_name} for user_id: {user_id}")
+                    return user_name
+                else:
+                    logger.warning(f"User found but 'user_name' field is missing or empty for user_id: {user_id}. Using fallback.")
+                    return "Candidate"
             else:
-                logger.warning(f"User name not found for user_id: {user_id}")
+                logger.warning(f"User not found in database for user_id: {user_id}. Using fallback.")
                 return "Candidate"
-                
+
         except Exception as e:
-            logger.error(f"Error fetching user name from database: {str(e)}")
+            logger.error(f"Critical error fetching user name for user_id {user_id}: {e}", exc_info=True)
             return "Candidate"
 
     @retry_with_backoff
