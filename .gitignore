@@ -32,4 +32,4 @@ ENV/
 
 # Logs
 *.log 
-notes.txt
+notes.txt.env
