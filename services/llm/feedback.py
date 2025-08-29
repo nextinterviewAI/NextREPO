@@ -96,16 +96,14 @@ IMPORTANT: Be specific about technical issues while recognizing any correct elem
             
             extra_context += "IMPORTANT: Reference these patterns in your feedback. Connect current performance to past trends. Be specific about how they're improving or repeating patterns. Use the performance trend and topic-specific data to provide targeted advice.\n\n"
 
-        # Check for poor quality answers and return early feedback
+        # Detect gibberish/low-effort patterns to steer the model toward detailed negative feedback (no early return)
         all_answers = [turn.get('answer', '').strip() for turn in conversation]
-        if all(not ans or len(ans.split()) < 3 for ans in all_answers):
-            return {
-                "summary": f"{user_name}, your responses were unclear, incomplete, or did not address the questions. Please review the basics and try to provide more relevant, structured answers.",
-                "positive_points": [],
-                "points_to_address": ["Most answers were missing, irrelevant, or nonsensical."],
-                "areas_for_improvement": ["Focus on understanding the question and providing clear, relevant responses."],
-                "metrics": {}
-            }
+        short_or_empty = sum(1 for ans in all_answers if not ans or len(ans.split()) < 3)
+        gibberish_markers = ["blah", "lorem", "asdf", "qwerty", "random", "idk", "???", "!!!"]
+        contains_gibberish = any(any(marker in ans.lower() for marker in gibberish_markers) for ans in all_answers)
+        repetitive_tokens = any(len(set(ans.lower().split())) <= 2 and len(ans.split()) >= 4 for ans in all_answers if ans)
+        low_effort_ratio = (short_or_empty / max(1, len(all_answers)))
+        low_effort_detected = low_effort_ratio >= 0.6 or contains_gibberish or repetitive_tokens
 
         # Build comprehensive feedback prompt
         prompt = f"""
@@ -167,6 +165,18 @@ Evaluation Criteria:
 - Domain-specific technical knowledge
 - Problem-solving methodology"""
 
+        # If low-effort or gibberish detected, add strict instruction to still generate comprehensive, concrete negative feedback
+        if low_effort_detected:
+            prompt += f"""
+
+LOW-EFFORT/GIBBERISH DETECTED:
+- The conversation contains short, empty, or low-signal answers (ratio: {low_effort_ratio:.2f}).
+- Provide detailed, specific, and constructive feedback even if performance is poor.
+- Do NOT return generic or minimal feedback.
+- Include: concrete examples of what's missing, what a strong answer should include, and a short study plan.
+- Explicitly call out any gibberish or irrelevant content and explain what would be acceptable instead.
+"""
+
         # Add code evaluation criteria if code data is available
         if code_data:
             prompt += f"""
@@ -185,6 +195,8 @@ Include:
 - Points to Address (specific areas from this interview that need improvement)
 - Areas for Improvement (broader areas relevant to this interview topic)
 - Metrics (a dictionary of key performance indicators, comparing to past performance if available. For example: {{"technical_skills": "improved by 15%", "communication": "consistent"}})
+- Detailed Feedback (explicit critique tied to specific Q&A turns; include what a good answer would cover)
+- Recommendations (targeted next steps: resources, topics to revise, and actionable practice tasks)
 
 Conversation:
 {formatted}
@@ -195,7 +207,9 @@ Return only valid JSON with structure:
     "positive_points": [...],
     "points_to_address": [...],
     "areas_for_improvement": [...],
-    "metrics": {{...}}
+    "metrics": {{...}},
+    "detailed_feedback": "...",
+    "recommendations": [...]
 }}
 """
 
