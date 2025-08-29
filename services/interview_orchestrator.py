@@ -399,6 +399,21 @@ Respond with the JSON object as specified above."""
             
             # Mark the answer as accepted in the database
             await self._mark_answer_as_accepted(user_answer)
+
+            # Safety: if the session transitioned to coding during acceptance, return the standard message
+            try:
+                fresh_session = await get_interview_session(self.session_id)
+                if fresh_session and fresh_session["meta"]["session_data"].get("current_phase") == "coding":
+                    return {
+                        "question": "Great! Now let's move to the coding phase. You can start coding.",
+                        "clarification": True,
+                        "ready_to_code": True,
+                        "language": (fresh_session.get("ai_response", {}).get("language")
+                                      or fresh_session.get("meta", {}).get("session_data", {}).get("language")
+                                      or "")
+                    }
+            except Exception:
+                pass
             
             # Now check if we should transition (after the current answer has been saved)
             if should_transition:
@@ -408,7 +423,7 @@ Respond with the JSON object as specified above."""
                     "question": "Great! Now let's move to the coding phase. You can start coding.",
                     "clarification": True,
                     "ready_to_code": True,
-                    "language": self.session_data.get("language", "")
+                    "language": (self.session_data.get("language") or "")
                 }
             
             # Add the next question to session
@@ -788,7 +803,9 @@ Respond with the JSON object as specified above."""
                             "question": "Great! Now let's move to the coding phase. You can start coding.",
                             "clarification": True,
                             "ready_to_code": True,
-                            "language": self.session_data.get("language", "")
+                            "language": (session.get("ai_response", {}).get("language")
+                                          or session_data.get("language")
+                                          or "")
                         }
                         
         except Exception as e:
