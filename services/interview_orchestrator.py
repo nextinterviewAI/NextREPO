@@ -315,6 +315,7 @@ Respond with the JSON object as specified above."""
                             # Override the LLM decision - it's wrong
                             decision["action"] = "next_question"
                             decision["reason"] = f"Override: Only {previous_good_answers} good answers, need 5 for transition"
+                            decision["ready_to_code"] = False
                             action = "next_question"
                         elif self.interview_type == "approach":
                             # Validate approach interview transition
