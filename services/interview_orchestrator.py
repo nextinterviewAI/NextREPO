@@ -104,7 +104,7 @@ CRITICAL RULES:
 2. For bad answers, ask user to retry the same question
 3. Respect clarification limits (max 2 per question, 5 total)
 4. **BAD ANSWER THRESHOLDS - CRITICAL:**
-   - For approach/non-coding interviews: ONLY use action "complete_session" if user would have 3+ bad quality answers (including current)
+   - For approach/non-coding interviews: ONLY use action "complete_session" if user would have 4+ bad quality answers (including current)
    - For coding interviews: ONLY use action "complete_session" if user would have 4-5+ bad quality answers (including current)
    - **DO NOT end sessions prematurely**
 5. **TRANSITION RULES - CRITICAL:**
@@ -167,7 +167,7 @@ APPROACH/NON-CODING INTERVIEW SPECIFIC RULES:
 - Technical methodology IS business logic when it directly impacts business decisions
 - Use conversational language: "That's a good point, but what about..." or "I'm curious about..."
 - Show genuine interest in their business thinking
-- If user would have 3+ bad quality answers (including current), use action "complete_session" to suggest ending
+- If user would have 4+ bad quality answers (including current), use action "complete_session" to suggest ending
 - **COMPLETE SESSION: After 7 good answers from PREVIOUS questions, use action "complete_session"**
 - Never ask for actual code writing, but technical methodology discussion is encouraged
 - When asking for retries: ask for clarification without revealing specific technical details"""
@@ -237,7 +237,7 @@ Based on this information, determine the next action. Remember:
 - For approach interviews: You need 7 good answers from PREVIOUS questions before you can complete
 - The current answer quality is assessed separately and does not count toward the transition threshold
 
-**CRITICAL**: If the user has provided multiple bad answers to the same question, consider ending the session after 3+ attempts for approach/non-coding interviews or 4-5+ attempts for coding interviews.
+**CRITICAL**: If the user has provided multiple bad answers to the same question, consider ending the session after 4+ attempts for approach/non-coding interviews or 4-5+ attempts for coding interviews.
 
 Respond with the JSON object as specified above."""
 
