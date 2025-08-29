@@ -47,11 +47,8 @@ class InterviewOrchestrator:
         
         logger.info(f"Processing answer for session {self.session_id}, interview_type: {self.interview_type}")
         
-        # Get RAG context (skip for non-coding to avoid irrelevant drift)
-        if self.interview_type in ["approach", "non-coding"]:
-            rag_context = ""
-        else:
-            rag_context = await self._get_rag_context()
+        # Get RAG context: disable during verbal phase for all types to avoid drift and over-strictness
+        rag_context = ""
         
         # Build comprehensive prompt for LLM decision (includes current bad answer count)
         prompt = self._build_decision_prompt(user_answer, rag_context)
@@ -111,9 +108,10 @@ CRITICAL RULES:
    - For coding interviews: ONLY use action "complete_session" if user would have 4-5+ bad quality answers (including current)
    - **DO NOT end sessions prematurely**
 5. **TRANSITION RULES - CRITICAL:**
-   - For coding interviews: if user has 5+ good answers AND current answer is good, use action "transition_phase"
-   - For approach interviews: if user has 7+ good answers AND current answer is good, use action "complete_session"
-   - **DO NOT ask follow-up questions when transition criteria are met**
+    - For coding interviews: ONLY use action "transition_phase" if user has 5+ good answers from PREVIOUS questions AND current answer is good
+    - For approach interviews: ONLY use action "complete_session" if user has 7+ good answers from PREVIOUS questions AND current answer is good
+    - **DO NOT ask follow-up questions when transition criteria are met**
+    - **IMPORTANT**: The current answer quality is assessed separately and does not count toward the transition threshold
 6. Never ask for code in non-coding interviews
 7. Generate contextually relevant follow-up questions
 
@@ -136,9 +134,10 @@ DYNAMIC RUBRIC (Topic-Agnostic):
 3. MAJORITY RULE: If the answer satisfies a majority of the criteria (e.g., 2 of 3 or 1 of 1),
    and directly addresses the base question, set quality_assessment = "good" and prefer
    action = "next_question".
-4. If marking quality_assessment = "bad", the feedback MUST briefly reference which
-   criteria were unclear or unmet without revealing the exact answer.
-5. Concise but accurate answers should be accepted as "good".
+4. If the answer satisfies most but not all criteria, prefer quality_assessment = "good"
+   and action = "next_question".
+5. Concise but accurate or partially correct answers that meet a majority of criteria
+   should be accepted as "good".
 
 NON-LEADING FEEDBACK:
 - When asking for a retry, keep the rationale non-leading and avoid giving away
@@ -156,7 +155,7 @@ CODING INTERVIEW SPECIFIC RULES:
 - Use conversational language: "Hmm, what about..." or "That's interesting, but..."
 - Show genuine interest in their thinking
 - If user would have 4-5+ bad quality answers (including current), use action "complete_session" to suggest ending
-- **TRANSITION TO CODING PHASE: After 5 good answers, use action "transition_phase"**
+- **TRANSITION TO CODING PHASE: After 5 good answers from PREVIOUS questions, use action "transition_phase"**
 - No actual code writing until coding phase"""
         else:
             type_instructions = """
@@ -169,7 +168,7 @@ APPROACH/NON-CODING INTERVIEW SPECIFIC RULES:
 - Use conversational language: "That's a good point, but what about..." or "I'm curious about..."
 - Show genuine interest in their business thinking
 - If user would have 3+ bad quality answers (including current), use action "complete_session" to suggest ending
-- **COMPLETE SESSION: After 7 good answers, use action "complete_session"**
+- **COMPLETE SESSION: After 7 good answers from PREVIOUS questions, use action "complete_session"**
 - Never ask for actual code writing, but technical methodology discussion is encouraged
 - When asking for retries: ask for clarification without revealing specific technical details"""
 
@@ -197,7 +196,7 @@ INTERVIEW CONTEXT:
 - Type: {self.interview_type}
 - Current Phase: {self.session_data.get('current_phase', 'verbal')}
 - Questions Answered: {total_answered}
-- Good Quality Answers: {current_good_answers}
+- Good Quality Answers (from previous questions): {current_good_answers}
 - Total Clarifications: {sum(q.get('clarification_count', 0) for q in self.session_data.get('follow_up_questions', []))}
 - Bad Quality Answers So Far: {current_bad_answers}
 - Consecutive Bad Answers: {consecutive_bad_answers}
@@ -216,8 +215,9 @@ Based on this information, determine the next action. Remember:
 - Assess answer quality first
 - If this answer is bad, it would make the total bad answers: {current_bad_answers + 1}
 - **PHASE TRANSITION LOGIC - CRITICAL:**
-  - For coding interviews: if user has 5+ good answers AND current answer is good, use action "transition_phase"
-  - For approach interviews: if user has 7+ good answers AND current answer is good, use action "complete_session"
+  - For coding interviews: ONLY use action "transition_phase" if user has 5+ good answers from PREVIOUS questions AND current answer is good
+  - For approach interviews: ONLY use action "complete_session" if user has 7+ good answers from PREVIOUS questions AND current answer is good
+- **TRANSITION COUNTING RULE**: When counting good answers for transition, ONLY count answers from previous questions. The current answer quality is assessed separately.
 - Decide whether to progress or retry
 - Generate appropriate questions or feedback
 - Manage interview flow and phase transitions
@@ -227,10 +227,15 @@ Based on this information, determine the next action. Remember:
 - **IMPORTANT**: Do NOT end the session prematurely. Only end if the threshold is actually exceeded.
 
 **TRANSITION DECISION TREE:**
-1. If interview_type = "coding" AND current_good_answers >= 5 AND current_answer_quality = "good" → action = "transition_phase"
-2. If interview_type = "approach" AND current_good_answers >= 7 AND current_answer_quality = "good" → action = "complete_session"
+1. If interview_type = "coding" AND previous_good_answers >= 5 AND current_answer_quality = "good" → action = "transition_phase"
+2. If interview_type = "approach" AND previous_good_answers >= 7 AND current_answer_quality = "good" → action = "complete_session"
 3. If current_answer_quality = "bad" → action = "retry_same"
 4. Otherwise → action = "next_question"
+
+**CRITICAL TRANSITION RULE**: 
+- For coding interviews: You need 5 good answers from PREVIOUS questions before you can transition
+- For approach interviews: You need 7 good answers from PREVIOUS questions before you can complete
+- The current answer quality is assessed separately and does not count toward the transition threshold
 
 **CRITICAL**: If the user has provided multiple bad answers to the same question, consider ending the session after 3+ attempts for approach/non-coding interviews or 4-5+ attempts for coding interviews.
 
@@ -268,8 +273,8 @@ Respond with the JSON object as specified above."""
                 ChatCompletionUserMessageParam(role="user", content=prompt["user"])
             ]
             
-            # Reduce variability for non-coding/approach verbal decisions
-            temperature = 0.0 if self.interview_type in ["approach", "non-coding"] else 0.3
+            # Use deterministic decisions for verbal phase across all types to improve consistency
+            temperature = 0.0
             response = await client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=messages,
@@ -295,12 +300,36 @@ Respond with the JSON object as specified above."""
                 # Validate critical fields
                 if action == "transition_phase":
                     logger.info(f"LLM requested transition to coding phase")
+                    
+                    # VALIDATE: Ensure we actually have enough good answers for transition
+                    if self.interview_type == "coding":
+                        follow_up_questions = self.session_data.get('follow_up_questions', [])
+                        answered_questions = [q for q in follow_up_questions if q.get('answer')]
+                        good_answers = [q for q in answered_questions if not q.get('answer_rejected', False)]
+                        previous_good_answers = len(good_answers)
+                        
+                        logger.info(f"LLM requested transition. Previous good answers: {previous_good_answers}, required: 5")
+                        
+                        if previous_good_answers < 5:
+                            logger.error(f"LLM incorrectly requested transition with only {previous_good_answers} good answers. Overriding to next_question.")
+                            # Override the LLM decision - it's wrong
+                            decision["action"] = "next_question"
+                            decision["reason"] = f"Override: Only {previous_good_answers} good answers, need 5 for transition"
+                            action = "next_question"
+                        elif self.interview_type == "approach":
+                            # Validate approach interview transition
+                            if previous_good_answers < 7:
+                                logger.error(f"LLM incorrectly requested completion with only {previous_good_answers} good answers. Overriding to next_question.")
+                                decision["action"] = "next_question"
+                                decision["reason"] = f"Override: Only {previous_good_answers} good answers, need 7 for completion"
+                                action = "next_question"
+                    
                 elif action == "next_question" and self.interview_type == "coding":
                     # Check if we should have transitioned
                     follow_up_questions = self.session_data.get('follow_up_questions', [])
                     answered_questions = [q for q in follow_up_questions if q.get('answer')]
                     good_answers = [q for q in answered_questions if not q.get('answer_rejected', False)]
-                    current_good_answers = len(good_answers) + 1  # +1 for current answer
+                    current_good_answers = len(good_answers)
                     
                     logger.info(f"LLM chose next_question for coding interview. Good answers: {current_good_answers}, should_transition: {current_good_answers >= 5}")
                     
@@ -353,27 +382,34 @@ Respond with the JSON object as specified above."""
         await update_interview_session_answer(self.session_id, user_answer, False)
         
         if action == "next_question":
-            # Mark the answer as accepted in the database
-            await self._mark_answer_as_accepted(user_answer)
-            
-            # Check if we should transition to coding phase for coding interviews
+            # Check if we should transition to coding phase for coding interviews BEFORE marking answer as accepted
+            # This prevents double-counting the current answer
+            should_transition = False
             if self.interview_type == "coding":
                 follow_up_questions = self.session_data.get('follow_up_questions', [])
                 answered_questions = [q for q in follow_up_questions if q.get('answer')]
                 good_answers = [q for q in answered_questions if not q.get('answer_rejected', False)]
-                current_good_answers = len(good_answers) + 1  # +1 for current answer
+                current_good_answers = len(good_answers)
                 
-                logger.info(f"After accepting answer: good_answers={current_good_answers}, should_transition={current_good_answers >= 5}")
+                # Only transition if we already have 5+ good answers from previous questions
+                # The current answer will be counted after it's saved to the database
+                should_transition = current_good_answers >= 5
                 
-                if current_good_answers >= 5:
-                    logger.info(f"Transitioning to coding phase after {current_good_answers} good answers")
-                    await transition_to_coding_phase(self.session_id)
-                    return {
-                        "question": "Excellent! You've demonstrated strong understanding. Now let's move to the coding phase. You can start coding.",
-                        "clarification": True,
-                        "ready_to_code": True,
-                        "language": self.session_data.get("language", "Python")
-                    }
+                logger.info(f"Transition check: existing_good_answers={current_good_answers}, should_transition={should_transition}")
+            
+            # Mark the answer as accepted in the database
+            await self._mark_answer_as_accepted(user_answer)
+            
+            # Now check if we should transition (after the current answer has been saved)
+            if should_transition:
+                logger.info(f"Transitioning to coding phase after {current_good_answers} existing good answers")
+                await transition_to_coding_phase(self.session_id)
+                return {
+                    "question": "Great! Now let's move to the coding phase. You can start coding.",
+                    "clarification": True,
+                    "ready_to_code": True,
+                    "language": self.session_data.get("language", "")
+                }
             
             # Add the next question to session
             next_question = decision.get("next_question", "")
@@ -383,7 +419,7 @@ Respond with the JSON object as specified above."""
             return {
                 "question": next_question,
                 "ready_to_code": decision.get("ready_to_code", False),
-                "language": self.session_data.get("language", "Python") if self.interview_type == "coding" else None
+                "language": self.session_data.get("language") if self.interview_type == "coding" else None
             }
             
         elif action == "retry_same":
@@ -409,7 +445,7 @@ Respond with the JSON object as specified above."""
             
             # Auto-end session if threshold exceeded
             if self.interview_type in ["approach", "non-coding"] and current_consecutive_bad >= 4:
-                logger.info(f"Auto-ending {self.interview_type} interview after {current_bad_count} bad answers")
+                logger.info(f"Auto-ending {self.interview_type} interview after {current_consecutive_bad} consecutive bad answers")
                 await self._mark_session_as_completed()
                 return {
                     "question": "I think we should end this interview here. You might want to review the material and come back better prepared next time. Please end the session and come back when you're better prepared.",
@@ -434,7 +470,7 @@ Respond with the JSON object as specified above."""
                 "max_clarifications": decision.get("max_clarifications", 2),
                 "interview_type": self.interview_type,
                 "quality_feedback": decision.get("feedback", ""),
-                "language": self.session_data.get("language", "Python") if self.interview_type == "coding" else None
+                "language": self.session_data.get("language") if self.interview_type == "coding" else None
             }
             
         elif action == "transition_phase":
@@ -446,7 +482,7 @@ Respond with the JSON object as specified above."""
                     "question": "Great! Now let's move to the coding phase. You can start coding.",
                     "clarification": True,
                     "ready_to_code": True,
-                    "language": self.session_data.get("language", "Python")
+                    "language": self.session_data.get("language", "")
                 }
             else:
                 # For approach interviews, complete the session
@@ -497,7 +533,38 @@ Respond with the JSON object as specified above."""
             else:
                 # Threshold not met, override LLM decision and ask to retry
                 logger.warning(f"LLM requested premature session completion. Overriding decision. Bad answers: {current_bad_count}, Consecutive: {current_consecutive_bad}, Required: {'4+ consecutive' if self.interview_type in ['approach', 'non-coding'] else '4-5+'}")
+                
+                # Mark the answer as rejected and increment counters
                 await self._mark_answer_as_rejected(user_answer)
+                await self._increment_bad_answer_count()
+                await self._increment_consecutive_bad_answer_count()
+                
+                # Now check if we've actually reached the threshold after incrementing
+                session = await get_interview_session(self.session_id)
+                if session:
+                    session_data = session["meta"]["session_data"]
+                    updated_bad_count = session_data.get('bad_answer_count', 0)
+                    updated_consecutive_bad = session_data.get('consecutive_bad_answer_count', 0)
+                    
+                    logger.info(f"After override: bad answers: {updated_bad_count}, consecutive: {updated_consecutive_bad}")
+                    
+                    # Check if threshold is now met
+                    if self.interview_type in ["approach", "non-coding"] and updated_consecutive_bad >= 4:
+                        logger.info(f"Threshold met after override. Auto-ending {self.interview_type} interview after {updated_consecutive_bad} consecutive bad answers")
+                        await self._mark_session_as_completed()
+                        return {
+                            "question": "I think we should end this interview here. You might want to review the material and come back better prepared next time. Please end the session and come back when you're better prepared.",
+                            "session_complete": True
+                        }
+                    elif self.interview_type == "coding" and updated_bad_count >= 4:
+                        logger.info(f"Threshold met after override. Auto-ending coding interview after {updated_bad_count} bad answers")
+                        await self._mark_session_as_completed()
+                        return {
+                            "question": "I think we should end this interview here. You might want to review the material and come back better prepared next time. Please end the session and come back when you're better prepared.",
+                            "session_complete": True
+                        }
+                
+                # If threshold still not met, ask to retry
                 return {
                     "question": "Let's try that again. Please provide a more detailed answer to the question.",
                     "current_question": self._get_current_question(),
@@ -508,14 +575,14 @@ Respond with the JSON object as specified above."""
                     "max_clarifications": 2,
                     "interview_type": self.interview_type,
                     "quality_feedback": "Please provide a more detailed answer.",
-                    "language": self.session_data.get("language", "Python") if self.interview_type == "coding" else None
+                    "language": self.session_data.get("language") if self.interview_type == "coding" else None
                 }
         
         # Default fallback
         return {
             "question": "Please provide a more detailed answer to continue.",
             "ready_to_code": False,
-            "language": self.session_data.get("language", "Python") if self.interview_type == "coding" else None
+            "language": self.session_data.get("language") if self.interview_type == "coding" else None
         }
     
     def _get_current_question(self) -> str:
@@ -702,6 +769,7 @@ Respond with the JSON object as specified above."""
                     logger.info(f"Reset consecutive bad answer count to 0 for session {self.session_id}")
                 
                 # Fallback transition check for coding interviews
+                # This ensures we don't miss transitions if the main logic fails
                 if self.interview_type == "coding":
                     answered_questions = [q for q in follow_up_questions if q.get('answer')]
                     good_answers = [q for q in answered_questions if not q.get('answer_rejected', False)]
@@ -709,9 +777,19 @@ Respond with the JSON object as specified above."""
                     
                     logger.info(f"Fallback check: good_answers={current_good_answers}, should_transition={current_good_answers >= 5}")
                     
-                    if current_good_answers >= 5 and session_data.get("current_phase") == "verbal":
-                        logger.info(f"Fallback: Transitioning to coding phase after {current_good_answers} good answers")
+                    # Only transition if we have exactly 5 good answers and we're still in verbal phase
+                    # This prevents premature transitions
+                    if current_good_answers == 5 and session_data.get("current_phase") == "verbal":
+                        logger.info(f"Fallback: Transitioning to coding phase after exactly {current_good_answers} good answers")
                         await transition_to_coding_phase(self.session_id)
+                        
+                        # Ensure the caller gets the standard transition message
+                        return {
+                            "question": "Great! Now let's move to the coding phase. You can start coding.",
+                            "clarification": True,
+                            "ready_to_code": True,
+                            "language": self.session_data.get("language", "")
+                        }
                         
         except Exception as e:
             logger.error(f"Error marking answer as accepted: {str(e)}")
@@ -760,12 +838,18 @@ class CodingPhaseOrchestrator:
             # Generate clarification response using LLM
             prompt = f"""
             You are a Senior Technical Interviewer conducting a coding interview. A candidate has asked for clarification about the problem.
-            
+
+            CRITICAL CONDUCT RULES (DO NOT VIOLATE):
+            - Do NOT provide the actual solution, code, or exact query.
+            - Do NOT write or reveal any full algorithms, SQL, or code snippets.
+            - Keep your guidance high-level and non-leading: clarify requirements, constraints, inputs/outputs, edge cases, and testing expectations.
+            - If the candidate explicitly asks for the solution, politely decline and encourage them to think aloud or attempt an approach, offering hints only.
+            - Keep it concise and conversational, speaking directly to the candidate.
+
             Base Question: {self.session_data.get('questions', [{}])[0].get('question', '')}
             Candidate's Clarification Request: {answer}
-            
-            Provide a helpful clarification response as the interviewer. Be concise, helpful, and speak directly to the candidate. 
-            Use phrases like "You can..." or "I'd suggest..." rather than referring to "the interviewer" in third person.
+
+            Provide a concise clarification as the interviewer without revealing the solution. Use phrasing like "You can...", "Consider...", or "Think about..." and avoid any code or exact query syntax.
             """
             
             try:
@@ -776,6 +860,10 @@ class CodingPhaseOrchestrator:
                     max_tokens=200
                 )
                 message = safe_strip(getattr(response.choices[0].message, 'content', None))
+                # Safety net: strip code fences if any slipped through
+                if message and "```" in message:
+                    import re
+                    message = re.sub(r"```[\s\S]*?```", "[Let's focus on approach and constraints rather than code.]", message)
             except Exception as e:
                 logger.error(f"Error generating clarification: {str(e)}")
                 message = "Please clarify what specific aspect you need help with."
@@ -794,7 +882,7 @@ class CodingPhaseOrchestrator:
             "ready_to_code": True,
             "clarification_count": clarification_count,
             "max_clarifications": max_clarifications,
-            "language": self.session_data.get("language", "Python")
+            "language": self.session_data.get("language")
         }
     
     async def handle_code_submission(self, code: str) -> Dict[str, Any]:

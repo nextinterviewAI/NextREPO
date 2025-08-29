@@ -110,9 +110,14 @@ async def _handle_coding_phase(answer_request: AnswerRequest, session: dict, ses
         
         return result
     else:
-        # Handle final code submission
-        coding_orchestrator = CodingPhaseOrchestrator(answer_request.session_id)
-        return await coding_orchestrator.handle_code_submission(answer_request.answer)
+        # Do not auto-submit code here. Keep coding phase conversational with inline clarification.
+        # Return guidance while staying in coding phase.
+        return {
+            "question": "You can start coding. If you need any clarification, ask here.",
+            "clarification": True,
+            "ready_to_code": True,
+            "language": session["ai_response"].get("language", "")
+        }
 
 async def _get_rag_context(topic: str) -> str:
     """Get RAG context for the given topic."""
